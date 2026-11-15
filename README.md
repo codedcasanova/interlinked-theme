@@ -14,8 +14,8 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
   - **Context:** percent used, what is filling the window, and a trend with an estimate of the turns you have left.
   - **Plan limits:** how much of each limit is used against how much of its time has gone, and when it resets.
   - **Tool calls per turn:** one bar per recent turn, with failed calls in red.
-  - A live row of counters, session uptime and a clock.
-- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed. The light around her turns the color of a gauge that is filling up, and she flickers faster as it nears full.
+  - A row of counters with session uptime and the date.
+- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed. Her line is typed out as she says it, beside a clock that counts seconds and a timer for the turn that is running. The light around her turns the color of a gauge that is filling up, and she flickers faster as it nears full.
 - **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls, a lead on the working line that says what Claude is doing, and a stamp under each answer with its time and usage.
 - **A control deck.** A side panel with a button for every option.
 
@@ -111,7 +111,7 @@ claude plugin test .       # the test suite: no session or network needed
 claude --plugin-dir .      # load it for one terminal session, reloading on save
 ```
 
-The scenes are generated from a seeded random number generator in `hooks/scenes.ts`, so every build of a look is identical. `hooks/console.ts` draws the console, `hooks/companion.ts` decides what the companion says, and `hooks/register.tsx` wires them to Claude Code's events.
+The scenes are generated from a seeded random number generator in `hooks/scenes.ts`, so every build of a look is identical. `hooks/console.ts` draws the console, `hooks/companion.ts` decides what the companion says, `hooks/live-row.tsx` types her line and runs the clock on the app's own frame clock, and `hooks/register.tsx` wires them to Claude Code's events.
 
 ## About
 

@@ -36,6 +36,8 @@ declare module 'claude-code' {
       hadFault: boolean
       /** Turns of the main conversation seen this session. */
       turns: number
+      /** When the turn running now began, in epoch ms; 0 while no turn runs. */
+      turnStartedAt: number
       /** How long the last turn ran, in seconds. */
       lastSeconds: number
       /** How full the context window is, 0 to 100. */

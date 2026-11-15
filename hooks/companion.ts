@@ -63,10 +63,15 @@ export function hhmm(ms: number): string {
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as const
 
-/** `21:17  FRI 13 NOV`: the clock as a title card would set it. */
-export function clockLabel(ms: number): string {
+/** `FRI 13 NOV`: the date as a title card would set it. */
+export function dateLabel(ms: number): string {
   const d = new Date(ms)
-  return `${hhmm(ms)}  ${DAYS[d.getDay()]} ${two(d.getDate())} ${MONTHS[d.getMonth()]}`
+  return `${DAYS[d.getDay()]} ${two(d.getDate())} ${MONTHS[d.getMonth()]}`
+}
+
+/** `21:17  FRI 13 NOV`: the clock and the date together. */
+export function clockLabel(ms: number): string {
+  return `${hhmm(ms)}  ${dateLabel(ms)}`
 }
 
 /** How long the session has run, as `HH:MM`; `--:--` when the start is unknown. */

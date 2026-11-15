@@ -43,7 +43,7 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 | `/theme-mod glass clear` | The city shows through the panels sharply |
 | `/theme-mod glass frost` | The city is blurred behind the panels, so text is easier to read. The default |
 | `/theme-mod glass solid` | No city at all. You keep the colors. The lightest on your computer |
-| `/theme-mod rain on` | Rain, lights and the hologram move. The default |
+| `/theme-mod rain on` | Rain, lights and the hologram move, and Joi's row ticks. The default |
 | `/theme-mod rain off` | Everything holds still |
 
 ### The strip above the prompt box
@@ -89,7 +89,11 @@ Colors mean the same thing everywhere: cyan is fine, amber is filling up, red is
 
 While Claude works, the line in the conversation starts with what it is doing: `UPLINK` (sending the request), `REASONING` (thinking), `OPERATING` (running a tool) or `COMPOSING` (writing the reply).
 
-The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the clock.
+Under the gauges, Joi's line is typed out as she says it. At the right of that row is the time to the second and, while Claude works, `TURN` with how long the turn has run so far.
+
+The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the date.
+
+With `/theme-mod rain off` the row holds still too: her line appears whole, and the clock moves to the bottom row and shows minutes.
 
 The plan limits and the chart are empty in a brand-new session. They fill in after Claude's first reply.
 

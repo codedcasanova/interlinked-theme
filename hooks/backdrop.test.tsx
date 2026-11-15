@@ -3,6 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { cleanName, clockLabel, companionLine, limitLabel, parseLimits, uptimeLabel } from './companion'
 import type { Vitals } from './companion'
 import { consoleSvg, moodOf, tokenLabel, turnsOfRoom } from './console'
+import { secondsLabel, turnLabel } from './live-row'
 import type { ConsoleData } from './console'
 import { LOOKS } from './looks'
 import { PRESET_IDS, railSvg, sceneSvg } from './scenes'
@@ -92,6 +93,14 @@ const BAND = {
 } as const
 
 type Drawn = { props: Record<string, unknown> } | undefined
+
+/** The companion's row is a surface module, keyed `live`: look inside it. */
+const LIVE = { in: 'live' } as const
+/** Long enough for the live row to finish typing any line. */
+const TYPED = 4000
+
+/** Moves a drawing's frame clock on. The mounts here are cast, which hides the acts a `Client` adds. */
+const advance = (ui: unknown, ms: number) => (ui as { advance: (ms: number) => Promise<void> }).advance(ms)
 
 /** `$.tool.call` without its input and result types: with many MCP tools connected they are too deep to check. */
 type Loose = { tool: { call: (input: unknown) => Promise<unknown> } }
@@ -291,11 +300,12 @@ test('the band is the command console, with real readings and the companion', as
   expect(source.includes('LAST 2 TURNS · AVG 1')).toBe(true)
   expect(source.includes('1 FAILED')).toBe(true)
   // the companion greets by the clock and the session's own count
-  expect(await ui.find({ type: 'Text', text: /JOI/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Good evening. 3 turns in, context at 43 percent. All quiet.' })).toBeDefined()
-  // the live row: uptime, folder and clock
+  expect(await ui.find({ type: 'Text', text: /JOI/, ...LIVE })).toBeDefined()
+  await advance(ui, TYPED)
+  expect(await ui.find({ type: 'Text', text: 'Good evening. 3 turns in, context at 43 percent. All quiet.', ...LIVE })).toBeDefined()
+  // the counters: uptime, the date and the state. The live row has the time.
   expect(await ui.find({ type: 'Text', text: '01:42   ' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '21:17  FRI 13 NOV' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'FRI 13 NOV' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '○ STANDBY' })).toBeDefined()
   await ui.unmount()
 
@@ -304,7 +314,10 @@ test('the band is the command console, with real readings and the companion', as
   expect(stored.band).toBe('rail')
   ui = await $.ui.mount(BAND as never)
   expect(((await ui.find({ type: 'Svg' })) as Drawn)?.props.height).toBe(26)
+  expect(await ui.find({ type: 'Client' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /JOI/ })).toBeUndefined()
+  // without the live row the counters keep the whole clock
+  expect(await ui.find({ type: 'Text', text: '21:17  FRI 13 NOV' })).toBeDefined()
   await ui.unmount()
 
   await run('band scene')
@@ -327,11 +340,12 @@ test('the companion can be renamed and sent away', async ($, on) => {
   expect((await run('companion name Vesper')).text).toBe('The companion answers to VESPER now.')
   expect(stored.companion).toBe('VESPER')
   let ui = await $.ui.mount(BAND as never)
-  expect(await ui.find({ type: 'Text', text: /VESPER/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /VESPER/, ...LIVE })).toBeDefined()
   await ui.unmount()
 
   expect((await run('companion off')).text).toContain('VESPER has stepped out')
   ui = await $.ui.mount(BAND as never)
+  expect(await ui.find({ type: 'Client' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /VESPER/ })).toBeUndefined()
   expect(String(((await ui.find({ type: 'Svg' })) as Drawn)?.props.source).includes('id="figure"')).toBe(false)
   await ui.unmount()
@@ -346,9 +360,53 @@ test('while Claude works, the companion says so and the state reads ACTIVE', asy
   await ($ as unknown as Loose).tool.call({ tool: 'Bash', command: 'ls' } as never)
 
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true } } as never)
-  expect(await ui.find({ type: 'Text', text: 'Working on it. 1 operation so far this turn.' })).toBeDefined()
+  await advance(ui, TYPED)
+  expect(await ui.find({ type: 'Text', text: 'Working on it. 1 operation so far this turn.', ...LIVE })).toBeDefined()
+  // the turn's timer runs beside the clock: four seconds in, by the row's own count
+  expect(await ui.find({ type: 'Text', text: 'TURN 00:04   ', ...LIVE })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '● ACTIVE' })).toBeDefined()
   await ui.unmount()
+})
+
+test('the live row types her line, counts seconds, and holds still with motion off', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  const GREETING = 'Good evening. 3 turns in, context at 43 percent. All quiet.'
+
+  let ui = await $.ui.mount(BAND as never)
+  const client = (await ui.find({ type: 'Client' })) as Drawn
+  expect(String(client?.props.module)).toContain('live-row.tsx')
+  expect(client?.props.width).toBe('100%')
+  // nothing typed yet, and the clock stands at the hook's own time
+  expect(await ui.find({ type: 'Text', text: GREETING, ...LIVE })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '21:17:00', ...LIVE })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /TURN/, ...LIVE })).toBeUndefined()
+
+  // part-way through, the line ends in a cursor
+  await advance(ui, 200)
+  expect(await ui.find({ type: 'Text', text: 'Good eveni▌', ...LIVE })).toBeDefined()
+  await advance(ui, 2800)
+  expect(await ui.find({ type: 'Text', text: GREETING, ...LIVE })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '21:17:03', ...LIVE })).toBeDefined()
+
+  // a redraw with the same line keeps what is typed and the row's own time
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: GREETING, ...LIVE })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '21:17:03', ...LIVE })).toBeDefined()
+  await ui.unmount()
+
+  // motion off: the same words as plain text, the whole clock below, nothing ticking
+  await $.command.run({ command: 'theme-mod', args: 'rain off' } as never)
+  ui = await $.ui.mount(BAND as never)
+  expect(await ui.find({ type: 'Client' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: GREETING })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '21:17  FRI 13 NOV' })).toBeDefined()
+  await ui.unmount()
+
+  expect(secondsLabel(NOW + 42_000)).toBe('21:17:42')
+  expect(turnLabel(83_000)).toBe('01:23')
+  expect(turnLabel(3_849_000)).toBe('1:04:09')
+  expect(turnLabel(-5)).toBe('00:00')
 })
 
 test('a faulted tool call is counted and the companion flags it', async ($, on) => {
@@ -362,7 +420,8 @@ test('a faulted tool call is counted and the companion flags it', async ($, on) 
   expect(out.isError).toBe(true)
 
   const ui = await $.ui.mount(BAND as never)
-  expect(await ui.find({ type: 'Text', text: /faulted/ })).toBeDefined()
+  await advance(ui, TYPED)
+  expect(await ui.find({ type: 'Text', text: /faulted/, ...LIVE })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'FAILED ' })).toBeDefined()
   await ui.unmount()
 })
@@ -585,7 +644,7 @@ test('the saved choices come back after /clear', async ($, on) => {
 
   await $.command.run({ command: 'theme-mod', args: 'band console' } as never)
   ui = await $.ui.mount(BAND as never)
-  expect(await ui.find({ type: 'Text', text: /VESPER/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /VESPER/, ...LIVE })).toBeDefined()
   await ui.unmount()
 })
 

@@ -14,9 +14,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs } from 'claude-code'
 
 import type { Band, Current, Glass } from '../types'
-import { DEFAULT_NAME, cleanName, clockLabel, companionLine, hhmm, parseLimits, uptimeLabel } from './companion'
+import { DEFAULT_NAME, cleanName, clockLabel, companionLine, dateLabel, hhmm, parseLimits, uptimeLabel } from './companion'
 import type { Limit } from './companion'
 import { CONSOLE, consoleSvg } from './console'
+import type { LiveRowProps } from './live-row'
 import { LOOKS } from './looks'
 import { PRESETS, PRESET_IDS, isPresetId, railSvg, sceneSvg } from './scenes'
 import type { PresetId } from './scenes'
@@ -72,6 +73,7 @@ const minute = atom({ plugin: 'interlinked-theme', key: 'minute' } as const, 0)
 const folder = atom({ plugin: 'interlinked-theme', key: 'folder' } as const, '')
 const companion = atom({ plugin: 'interlinked-theme', key: 'companion' } as const, DEFAULT_NAME)
 const isCompanionOn = atom({ plugin: 'interlinked-theme', key: 'isCompanionOn' } as const, true)
+const turnStartedAt = atom({ plugin: 'interlinked-theme', key: 'turnStartedAt' } as const, 0)
 const historyJson = atom({ plugin: 'interlinked-theme', key: 'historyJson' } as const, '[]')
 const contextJson = atom({ plugin: 'interlinked-theme', key: 'contextJson' } as const, '{}')
 
@@ -83,6 +85,11 @@ type Detail = { tokens: number; window: number; parts: { name: string; tokens: n
 const HISTORY = 24
 /** Tool calls that failed in the turn running now. */
 let turnFaults = 0
+/**
+ * Names this load's live row to its surface module, so two sessions drawn in
+ * one window each keep their own.
+ */
+const LIVE_ROW = Math.random().toString(36).slice(2)
 
 function parseHistory(text: string): Turn[] {
   try {
@@ -589,6 +596,8 @@ export const register: Register = on => {
         turnFaults = 0
         await update($, turnOps, () => 0)
         await update($, hadFault, () => false)
+        const began = await $.clock.now()
+        await update($, turnStartedAt, () => began)
         const id = await $.session.model()
         await update($, model, () => id)
       } catch {
@@ -605,6 +614,7 @@ export const register: Register = on => {
 
     const seconds = Math.round(e.durationMs / 1000)
     try {
+      await update($, turnStartedAt, () => 0)
       await update($, lastSeconds, () => seconds)
     } catch {
       // Keep the last value.
@@ -638,7 +648,7 @@ export const register: Register = on => {
     const p = PRESETS[now]
     const hud = p.hud
     const ground = LOOKS[now].surface
-    const { Box, Svg, Text } = $.ui.resolve(e)
+    const { Box, Client, Svg, Text } = $.ui.resolve(e)
 
     const context = await read($, contextPercent)
     const limits = parseLimits(await read($, limitsJson))
@@ -705,25 +715,47 @@ export const register: Register = on => {
       <Text color={hud.primary} weight="bold">{value}{'   '}</Text>,
     ]
 
+    const line = hasCompanion
+      ? companionLine({
+          isWorking,
+          turnOps: await read($, turnOps),
+          hadFault: await read($, hadFault),
+          context,
+          limits,
+          lastSeconds: await read($, lastSeconds),
+          turns: await read($, turns),
+          now: clock,
+        })
+      : ''
+    // With motion on, the companion's row is live: her line is typed out
+    // beside a clock with seconds and the running turn's timer, all drawn by
+    // a surface module on its own clock. Held still, it is plain text.
+    let live: LiveRowProps | undefined
+    if (hasCompanion && anim) {
+      live = {
+        id: LIVE_ROW,
+        name,
+        line,
+        now: await $.clock.now().catch(() => 0),
+        turnStartedAt: isWorking ? await read($, turnStartedAt) : 0,
+        nameColor: hud.you,
+        clockColor: hud.primary,
+        turnColor: hud.secondary,
+      }
+    }
+
     return (
       <Box width="100%" flexDirection="column" overflow="hidden" backgroundColor={ground}>
         <Box width="100%" overflow="hidden">{graphic}</Box>
-        {hasCompanion ? (
+        {live !== undefined ? (
+          <Box width="100%" paddingX={1}>
+            <Client key="live" module="./live-row.tsx" props={live} width="100%" />
+          </Box>
+        ) : hasCompanion ? (
           <Box width="100%" paddingX={1}>
             <Text size="caption" wrap="truncate">
               <Text mono color={hud.you} weight="bold">◆ {name} ▸ </Text>
-              <Text>
-                {companionLine({
-                  isWorking,
-                  turnOps: await read($, turnOps),
-                  hadFault: await read($, hadFault),
-                  context,
-                  limits,
-                  lastSeconds: await read($, lastSeconds),
-                  turns: await read($, turns),
-                  now: clock,
-                })}
-              </Text>
+              <Text>{line}</Text>
             </Text>
           </Box>
         ) : null}
@@ -738,7 +770,10 @@ export const register: Register = on => {
           {/* The state has a Text of its own, so a narrow band cuts the clock before it. */}
           <Box flexDirection="row" gap={2}>
             {clock > 0 ? (
-              <Text mono size="caption" wrap="truncate" color={hud.primary}>{clockLabel(clock)}</Text>
+              <Text mono size="caption" wrap="truncate" color={hud.primary}>
+                {/* the live row above carries the time, to the second */}
+                {live !== undefined ? dateLabel(clock) : clockLabel(clock)}
+              </Text>
             ) : null}
             <Text mono size="caption" weight="bold" color={isWorking ? hud.secondary : hud.primary}>
               {isWorking ? '● ACTIVE' : '○ STANDBY'}
