@@ -40,7 +40,7 @@ function world(
   on: any,
   stored: Stored = {},
   theme: 'drawn' | 'undrawn' | 'refused' = 'undrawn',
-  limits: { now: Limit[]; surfaces?: string[] } = { now: LIMITS },
+  limits: { now: Limit[]; surfaces?: string[]; percent?: number } = { now: LIMITS },
 ) {
   const sets: SetCall[] = []
   const calls: string[] = []
@@ -79,7 +79,7 @@ function world(
   on('session.usage', () => ({
     value: {
       startedAt: NOW - 102 * 60_000,
-      context: { window: 200000, percent: 43 },
+      context: { window: 200000, percent: limits.percent ?? 43 },
       rateLimits: limits.now,
     },
   }))
@@ -516,6 +516,69 @@ test('the readouts count real tool calls and turns', async ($, on) => {
   expect(await failed.find({ type: 'Text', text: /FAILED/ })).toBeDefined()
   expect(await failed.find({ type: 'Text', text: /^  ·  \d+ms$/ })).toBeDefined()
   await failed.unmount()
+})
+
+test('a reading mid-turn moves the text readouts and leaves the console drawing alone', async ($, on) => {
+  const session: { now: Limit[]; percent?: number } = { now: LIMITS }
+  world(on, {}, 'undrawn', session)
+  const writes: string[] = []
+  on('state.set', (_, e, next) => {
+    writes.push(String((e as { key?: string }).key))
+    return next(e)
+  })
+  on('session.measure', () => ({ changed: [] }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.start', (_, e) => ({ turnId: (e as { turnId: string }).turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.session.start(START)
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true } } as never)
+  const source = async () => String(((await ui.find({ type: 'Svg' })) as Drawn)?.props.source)
+  const before = await source()
+  expect(before.includes('>43%<')).toBe(true)
+
+  await $.turn.start({ turnId: 't1', text: 'go' } as never)
+  const atTurnStart = await source()
+
+  // a reading arrives mid-turn: the context has grown and a limit has moved.
+  // It comes with the event, so nothing is fetched, and only what changed is written.
+  const grown = [{ kind: 'five_hour', percentUsed: 30 }, { kind: 'seven_day', percentUsed: 71.5 }]
+  const reading = { context: { window: 200000, percent: 58 }, rateLimits: grown, changed: [] }
+  writes.length = 0
+  await $.session.measure(reading as never)
+  expect([...writes].sort()).toEqual(['contextPercent', 'limitsJson'])
+  // the drawing is the one the turn began with: a new source would restart its animation
+  expect(await source()).toBe(atTurnStart)
+  expect(atTurnStart).toBe(before)
+
+  // the same reading again writes nothing at all
+  writes.length = 0
+  await $.session.measure(reading as never)
+  expect(writes).toEqual([])
+
+  // a tool call is one write
+  writes.length = 0
+  await ($ as unknown as Loose).tool.call({ tool: 'Bash', command: 'ls' } as never)
+  expect(writes).toEqual(['ops'])
+  expect(await source()).toBe(before)
+
+  // the turn ends: the console takes the new figures, and the stamp has them too
+  session.percent = 58
+  session.now = grown as Limit[]
+  const done = (await $.turn.complete({
+    turnId: 't1', answer: 'done', durationMs: 9000, isAborted: false, usage: null, reason: 'answer',
+  } as never)) as { text: string }
+  expect(done.text).toBe('◣ DONE IN 9s  ·  1 TOOL CALL  ·  CONTEXT 58%')
+  const after = await source()
+  expect(after.includes('>58%<')).toBe(true)
+  expect(after.includes('>30%<')).toBe(true)
+  await ui.unmount()
+
+  // with the theme off, a reading is left alone
+  await $.command.run({ command: 'theme-mod', args: 'off' } as never)
+  writes.length = 0
+  await $.session.measure({ ...reading, context: { window: 200000, percent: 77 } } as never)
+  expect(writes).toEqual([])
 })
 
 test('a limit running out books one notification for its reset, and alerts off takes it back', async ($, on) => {

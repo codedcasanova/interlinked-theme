@@ -89,6 +89,8 @@ Left to right:
 
 Colors mean the same thing everywhere: cyan is fine, amber is filling up, red is nearly out.
 
+The gauges hold their figures while a turn runs and take the new ones when it ends, so the console's animation is never interrupted. Joi's line and the counters under the gauges stay live throughout.
+
 Under the gauges, Joi's line is typed out as she says it. At the right of that row is the time to the second and, while Claude works, `TURN` with how long the turn has run so far.
 
 The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the date. With Joi hidden, or a band other than the console, the bottom row shows the time as well.

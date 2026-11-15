@@ -28,8 +28,8 @@ declare module 'claude-code' {
       isBackdropDrawn: boolean
       /** Tool calls seen this session. */
       ops: number
-      /** Tool calls in the turn running now, or the last one. */
-      turnOps: number
+      /** The session's count of tool calls when the turn running now, or the last one, began. */
+      turnBase: number
       /** Tool calls that came back as errors this session. */
       faults: number
       /** Whether a tool call faulted in the turn running now, or the last one. */
@@ -59,8 +59,11 @@ declare module 'claude-code' {
       isAlertsOn: boolean
       /** The last turns as JSON: a list of { o: tool calls, f: failed, c: context after }. */
       historyJson: string
-      /** What fills the context as JSON: { tokens, window, parts, reserve }. */
-      contextJson: string
+      /**
+       * What the console's drawing shows, as JSON: { context, limits, detail }.
+       * Held from one turn's end to the next, so the drawing isn't rebuilt mid-turn.
+       */
+      consoleJson: string
     }
   }
 }

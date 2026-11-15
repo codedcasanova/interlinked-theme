@@ -68,7 +68,7 @@ const turns = atom({ plugin: 'interlinked-theme', key: 'turns' } as const, 0)
 const lastSeconds = atom({ plugin: 'interlinked-theme', key: 'lastSeconds' } as const, 0)
 const contextPercent = atom({ plugin: 'interlinked-theme', key: 'contextPercent' } as const, 0)
 const model = atom({ plugin: 'interlinked-theme', key: 'model' } as const, '')
-const turnOps = atom({ plugin: 'interlinked-theme', key: 'turnOps' } as const, 0)
+const turnBase = atom({ plugin: 'interlinked-theme', key: 'turnBase' } as const, 0)
 const faults = atom({ plugin: 'interlinked-theme', key: 'faults' } as const, 0)
 const hadFault = atom({ plugin: 'interlinked-theme', key: 'hadFault' } as const, false)
 const limitsJson = atom({ plugin: 'interlinked-theme', key: 'limitsJson' } as const, '[]')
@@ -80,7 +80,7 @@ const isCompanionOn = atom({ plugin: 'interlinked-theme', key: 'isCompanionOn' }
 const isAlertsOn = atom({ plugin: 'interlinked-theme', key: 'isAlertsOn' } as const, true)
 const turnStartedAt = atom({ plugin: 'interlinked-theme', key: 'turnStartedAt' } as const, 0)
 const historyJson = atom({ plugin: 'interlinked-theme', key: 'historyJson' } as const, '[]')
-const contextJson = atom({ plugin: 'interlinked-theme', key: 'contextJson' } as const, '{}')
+const consoleJson = atom({ plugin: 'interlinked-theme', key: 'consoleJson' } as const, '{}')
 
 /** One finished turn: its tool calls, how many failed, and the context after it (-1 when unknown). */
 type Turn = { o: number; f: number; c: number }
@@ -110,10 +110,28 @@ function parseHistory(text: string): Turn[] {
   }
 }
 
-function parseDetail(text: string): Detail {
+/** What the console's drawing shows: the readings as they stood when it was last allowed to change. */
+type Held = { context: number; limits: Limit[]; detail: Detail }
+
+function parseHeld(text: string): Held {
+  const empty: Held = { context: 0, limits: [], detail: parseDetail(undefined) }
+  try {
+    const held = JSON.parse(text) as Partial<Held> | null
+    if (typeof held !== 'object' || held === null) return empty
+    return {
+      context: typeof held.context === 'number' ? held.context : 0,
+      limits: parseLimits(JSON.stringify(held.limits ?? [])),
+      detail: parseDetail(held.detail),
+    }
+  } catch {
+    return empty
+  }
+}
+
+function parseDetail(value: unknown): Detail {
   const empty: Detail = { tokens: 0, window: 0, parts: [], reserve: 0 }
   try {
-    const d = JSON.parse(text) as Partial<Detail> | null
+    const d = value as Partial<Detail> | null | undefined
     if (typeof d !== 'object' || d === null) return empty
     return {
       tokens: typeof d.tokens === 'number' ? d.tokens : 0,
@@ -365,10 +383,69 @@ async function loadChoices($: EngineInterface): Promise<Current> {
   const now: Current =
     saved === 'off' ? 'off' : typeof saved === 'string' && isPresetId(saved) ? saved : DEFAULT
   await update($, current, () => now)
+  isOff = now === 'off'
   return now
 }
 
-/** Refreshes the readouts that come from the session itself. Never throws. */
+/** Whether the theme is off. Module state, set wherever the look is loaded or chosen. */
+let isOff = false
+
+/**
+ * Runs `write` only when `value` differs from what is `stored`. Every write
+ * draws its readers again, the band among them, so an unchanged one is
+ * skipped. The read and the write stay at the call, where the engine can see
+ * which value they name: it refuses a state call made through a parameter.
+ */
+async function fresh<T>(stored: T, value: T, write: () => Promise<unknown>): Promise<void> {
+  if (stored !== value) await write()
+}
+
+/**
+ * Takes in a reading as the session reports one mid-turn: how full the
+ * context is and the plan limits. Only the text readouts follow it; the
+ * console's drawing holds what it showed until the turn ends, because a new
+ * source restarts its animation. Never throws.
+ */
+async function takeReading($: EngineInterface, percent: unknown, limits: unknown): Promise<void> {
+  try {
+    if (typeof percent === 'number') {
+      const filled = Math.round(percent)
+      await fresh(await read($, contextPercent), filled, () => update($, contextPercent, () => filled))
+    }
+    if (Array.isArray(limits)) {
+      const text = JSON.stringify(parseLimits(JSON.stringify(limits)).map(limit => ({
+        kind: limit.kind, percentUsed: limit.percentUsed, resetsAt: limit.resetsAt,
+      })))
+      await fresh(await read($, limitsJson), text, () => update($, limitsJson, () => text))
+      await syncAlerts($, parseLimits(text))
+    }
+  } catch {
+    // The readouts keep their last values.
+  }
+}
+
+/** Reads what the session keeps for its whole length: the model and the working folder. Never throws. */
+async function readSession($: EngineInterface): Promise<void> {
+  try {
+    const id = await $.session.model()
+    await fresh(await read($, model), id, () => update($, model, () => id))
+  } catch {
+    // Keep the last one.
+  }
+  try {
+    const cwd = await $.session.cwd()
+    const last = cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''
+    await fresh(await read($, folder), last, () => update($, folder, () => last))
+  } catch {
+    // Same.
+  }
+}
+
+/**
+ * Takes a full reading, with what fills the context, and lets the console's
+ * drawing show it. Called where the drawing may change: when the session
+ * starts, when a turn ends, and when a look is chosen. Never throws.
+ */
 async function refreshReadouts($: EngineInterface): Promise<void> {
   try {
     // `summary` estimates the breakdown locally: no request is sent for it.
@@ -389,39 +466,27 @@ async function refreshReadouts($: EngineInterface): Promise<void> {
         ? breakdown.categories.filter(row => row.kind === 'buffer').reduce((sum, row) => sum + row.tokens, 0)
         : 0,
     }
-    const detailText = JSON.stringify(detail)
-    await update($, contextJson, () => detailText)
     const filled = typeof percent === 'number' ? percent : breakdown ? breakdown.percentage : undefined
-    if (typeof filled === 'number') await update($, contextPercent, () => Math.round(filled))
-    const limits = JSON.stringify(
-      usage.rateLimits.map(limit => ({ kind: limit.kind, percentUsed: limit.percentUsed, resetsAt: limit.resetsAt })),
-    )
-    await update($, limitsJson, () => limits)
-    await syncAlerts($, parseLimits(limits))
+    await takeReading($, filled, usage.rateLimits)
     const began = usage.startedAt
-    if (typeof began === 'number') await update($, startedAt, () => began)
+    if (typeof began === 'number') await fresh(await read($, startedAt), began, () => update($, startedAt, () => began))
+    const held: Held = {
+      context: await read($, contextPercent),
+      limits: parseLimits(await read($, limitsJson)),
+      detail,
+    }
+    const text = JSON.stringify(held)
+    await fresh(await read($, consoleJson), text, () => update($, consoleJson, () => text))
   } catch {
-    // No usage on this build or surface: the readout keeps its last value.
-  }
-  try {
-    const id = await $.session.model()
-    await update($, model, () => id)
-  } catch {
-    // Same: keep the last one.
-  }
-  try {
-    const cwd = await $.session.cwd()
-    const last = cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''
-    await update($, folder, () => last)
-  } catch {
-    // Same.
+    // No usage on this build or surface: the readouts keep their last values.
   }
 }
 
 /** Moves the band's clock to the current minute, when it has changed. */
 async function tick($: EngineInterface): Promise<void> {
+  if (isOff) return
   const now = Math.floor((await $.clock.now()) / 60_000)
-  if ((await read($, minute)) !== now) await update($, minute, () => now)
+  await fresh(await read($, minute), now, () => update($, minute, () => now))
 }
 
 async function setCompanion($: EngineInterface, isOn: boolean): Promise<string> {
@@ -452,9 +517,15 @@ async function setAlerts($: EngineInterface, isOn: boolean): Promise<string> {
 async function choosePreset($: EngineInterface, id: PresetId): Promise<string> {
   await $.store.set(CHOICE, id)
   await update($, current, () => id as Current)
+  const wasOff = isOff
+  isOff = false
   const set = await apply($, id)
-  // coming back from `off`: book again what turning off took back
-  await syncAlerts($, parseLimits(await read($, limitsJson)))
+  // Coming back from `off`: the readouts stood still meanwhile, so take a
+  // fresh reading, which also books again what turning off took back.
+  if (wasOff) {
+    await tick($).catch(() => undefined)
+    await refreshReadouts($)
+  }
   $.ui.toast(`${PRESETS[id].label.toUpperCase()} // ONLINE`)
   return set.isDrawn
     ? `Look set: ${PRESETS[id].label}.`
@@ -492,6 +563,7 @@ async function setStyle($: EngineInterface, isOn: boolean): Promise<string> {
 async function turnOff($: EngineInterface): Promise<string> {
   await $.store.set(CHOICE, 'off')
   await update($, current, () => 'off' as Current)
+  isOff = true
   await update($, isBackdropDrawn, () => false)
   await cancelAlerts($)
   await $.theme.clear()
@@ -616,6 +688,7 @@ export const register: Register = on => {
         // Count from here.
       }
     }
+    await readSession($)
     await refreshReadouts($)
 
     try {
@@ -646,14 +719,32 @@ export const register: Register = on => {
   // session.start again, so load the saved choices once more.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     await loadChoices($)
+    await readSession($)
     await refreshReadouts($)
     return next(e)
   })
 
-  // Plan limits and the context count arrive with Claude's replies: take a
-  // fresh reading whenever the session measures them.
+  // Plan limits and the context count arrive with Claude's replies. The event
+  // carries both, so a reading costs no call; a build that sends neither is
+  // asked for the plain figures. Mid-turn only the text readouts follow it.
   on('session.measure', async ($, e, next) => {
-    await refreshReadouts($)
+    if (isOff) return next(e)
+    try {
+      if ((await read($, turnStartedAt)) === 0) {
+        // no turn is running (a /compact, a resume): the console may show it
+        await refreshReadouts($)
+      } else {
+        const reading = e as { context?: { percent?: number }; rateLimits?: unknown }
+        if (reading.context === undefined || reading.rateLimits === undefined) {
+          const usage = await $.session.usage()
+          await takeReading($, usage.context.percent, usage.rateLimits)
+        } else {
+          await takeReading($, reading.context.percent, reading.rateLimits)
+        }
+      }
+    } catch {
+      // The readouts keep their last values.
+    }
     return next(e)
   })
 
@@ -672,23 +763,23 @@ export const register: Register = on => {
     // Read through plain shapes: the union of every connected tool is too deep to narrow.
     const callId = (e as { tool_use_id: string }).tool_use_id
     keep(opIndex, callId, n)
-    try {
-      await update($, ops, () => n)
-      await update($, turnOps, count => count + 1)
-    } catch {
-      // A readout must never cost a tool call.
-    }
+    // One write for the count, started now and finished while the tool runs,
+    // so the call doesn't wait on a readout. Calls made side by side each
+    // write their own number: the larger stands. A readout must never cost a
+    // tool call, so a failed write is let go.
+    const counted = update($, ops, count => Math.max(count, n)).catch(() => undefined)
     // Timed here and not with $.clock, which would add two dispatches to every call.
     const began = Date.now()
     const result = await next(e)
     // The row is drawn with its result only after this hook returns, so the
     // card finds the time here when it needs it.
     keep(opMs, callId, Date.now() - began)
+    await counted
     try {
       if ((result as { isError?: boolean }).isError === true) {
         turnFaults += 1
         await update($, faults, count => count + 1)
-        await update($, hadFault, () => true)
+        await fresh(await read($, hadFault), true, () => update($, hadFault, () => true))
       }
     } catch {
       // Same.
@@ -701,12 +792,14 @@ export const register: Register = on => {
       try {
         await update($, turns, n => n + 1)
         turnFaults = 0
-        await update($, turnOps, () => 0)
-        await update($, hadFault, () => false)
+        // the turn's own count of calls is the session's count less this
+        const base = await read($, ops)
+        await fresh(await read($, turnBase), base, () => update($, turnBase, () => base))
+        await fresh(await read($, hadFault), false, () => update($, hadFault, () => false))
         const began = await $.clock.now()
-        await update($, turnStartedAt, () => began)
+        await fresh(await read($, turnStartedAt), began, () => update($, turnStartedAt, () => began))
         const id = await $.session.model()
-        await update($, model, () => id)
+        await fresh(await read($, model), id, () => update($, model, () => id))
       } catch {
         // Keep the last values.
       }
@@ -721,14 +814,15 @@ export const register: Register = on => {
 
     const seconds = Math.round(e.durationMs / 1000)
     try {
-      await update($, turnStartedAt, () => 0)
-      await update($, lastSeconds, () => seconds)
+      await fresh(await read($, turnStartedAt), 0, () => update($, turnStartedAt, () => 0))
+      await fresh(await read($, lastSeconds), seconds, () => update($, lastSeconds, () => seconds))
     } catch {
       // Keep the last value.
     }
-    await refreshReadouts($)
+    // The turn is over: the console's drawing may take the new figures.
+    if (!isOff) await refreshReadouts($)
 
-    const calls = await read($, turnOps)
+    const calls = Math.max(0, (await read($, ops)) - (await read($, turnBase)))
     const context = await read($, contextPercent)
     try {
       // one more bar on the chart, one more point on the trend
@@ -764,9 +858,16 @@ export const register: Register = on => {
     const hasCompanion = choice === 'console' && (await read($, isCompanionOn))
     const isWorking = e.props.isWorking
 
+    const calls = await read($, ops)
+
     let graphic
+    let shown = context
     if (choice === 'console') {
-      const detail = parseDetail(await read($, contextJson))
+      // The drawing shows the readings as they stood when the last turn
+      // ended: a new source would restart its animation mid-turn.
+      const held = parseHeld(await read($, consoleJson))
+      const detail = held.detail
+      shown = held.context
       const history = parseHistory(await read($, historyJson))
       // The limits' clocks move in five-minute steps, so the drawing is
       // rebuilt every five minutes and not every one.
@@ -776,20 +877,20 @@ export const register: Register = on => {
           source={consoleSvg(
             now,
             {
-              context,
+              context: shown,
               tokens: detail.tokens,
               window: detail.window,
               parts: detail.parts,
               reserve: detail.reserve,
               trend: history.filter(turn => turn.c >= 0).map(turn => turn.c),
-              limits: limits.slice(0, 2).map(limit => limitRow(limit, step)),
+              limits: held.limits.slice(0, 2).map(limit => limitRow(limit, step)),
               turns: history.map(turn => ({ ops: turn.o, faults: turn.f })),
               hasCompanion,
               ground,
             },
             anim,
           )}
-          alt={`Command console: context window ${context} percent used`}
+          alt={`Command console: context window ${shown} percent used`}
           width={anim ? CONSOLE.frameWidth : CONSOLE.minWidth}
           height={CONSOLE.height}
           isInteractive={anim || undefined}
@@ -825,7 +926,7 @@ export const register: Register = on => {
     const line = hasCompanion
       ? companionLine({
           isWorking,
-          turnOps: await read($, turnOps),
+          turnOps: Math.max(0, calls - (await read($, turnBase))),
           hadFault: await read($, hadFault),
           context,
           limits,
@@ -868,7 +969,7 @@ export const register: Register = on => {
         ) : null}
         <Box width="100%" flexDirection="row" justifyContent="space-between" paddingX={1}>
           <Text mono size="caption" wrap="truncate">
-            {pair('TOOL CALLS', String(await read($, ops)))}
+            {pair('TOOL CALLS', String(calls))}
             {pair('TURNS', String(await read($, turns)))}
             {pair('LAST TURN', `${await read($, lastSeconds)}s`)}
             {pair('FAILED', String(await read($, faults)))}
