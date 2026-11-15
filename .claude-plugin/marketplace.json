@@ -1,0 +1,16 @@
+{
+  "name": "interlinked",
+  "owner": {
+    "name": "codedcasanova"
+  },
+  "plugins": [
+    {
+      "name": "interlinked-theme",
+      "source": "./",
+      "description": "A retro-future noir look for the Claude desktop app: colors, a moving city, a live command console and a hologram companion."
+    }
+  ],
+  "metadata": {
+    "description": "Interlinked: a retro-future noir theme for the Claude desktop app."
+  }
+}

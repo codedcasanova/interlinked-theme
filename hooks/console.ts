@@ -1,0 +1,358 @@
+// The command console: the band above the prompt, drawn as one SVG.
+//
+// Every mark on it is a reading. Four cells, left to right:
+//   the companion's hologram;
+//   CONTEXT: how full the window is, what is filling it, and how fast;
+//   PLAN LIMITS: how much of each window is used against how much time is gone;
+//   TOOL CALLS PER TURN: one bar for each recent turn, failures marked.
+//
+// It is laid out in CSS pixels with no viewBox, so type is drawn at its real
+// size whatever the band's width. (The desktop clamps the frame to the band's
+// width, and a viewBox wider than the band shrinks everything in it.)
+
+import { PORTRAIT } from './portrait'
+import { PRESETS } from './scenes'
+import type { Palette, PresetId } from './scenes'
+
+export type ConsoleData = {
+  /** How full the context window is, 0 to 100. */
+  context: number
+  /** Tokens in the window and the window's size; 0 when unknown. */
+  tokens: number
+  window: number
+  /** What fills the window, biggest first, and the compaction reserve. */
+  parts: readonly { name: string; tokens: number }[]
+  reserve: number
+  /** Context percent at the end of each recent turn, oldest first. */
+  trend: readonly number[]
+  /** Plan limits, at most two. `elapsed` is the share of the window's time gone, 0 to 1. */
+  limits: readonly { name: string; percent: number; elapsed: number | null; resets: string; left: string }[]
+  /** Tool calls in each recent turn, oldest first. */
+  turns: readonly { ops: number; faults: number }[]
+  hasCompanion: boolean
+  /** The page color behind the console. */
+  ground: string
+}
+
+/** The console's size. Its four cells need `minWidth`; a wider band gets more ruler. */
+export const CONSOLE = { minWidth: 752, frameWidth: 1600, height: 132 }
+
+const FONT = "font-family=\"Bahnschrift,'DIN Alternate','Segoe UI',sans-serif\""
+const H = CONSOLE.height
+
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** `642K`, `1M`, `1.2M`: a token count short enough for a readout. */
+export function tokenLabel(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`
+  return String(Math.round(n))
+}
+
+/** A gauge's color by how full it is: calm, then warm, then alarm. */
+const level = (p: Palette, percent: number) =>
+  percent >= 85 ? p.hud.alert : percent >= 65 ? p.hud.primary : p.hud.secondary
+
+/**
+ * How many more turns fit at the recent rate of growth, from the trend.
+ * Undefined when there is too little history or the window isn't filling.
+ */
+export function turnsOfRoom(trend: readonly number[]): number | undefined {
+  if (trend.length < 3) return undefined
+  const recent = trend.slice(-6)
+  const growth = (recent[recent.length - 1]! - recent[0]!) / (recent.length - 1)
+  if (growth < 0.2) return undefined
+  return Math.max(0, Math.round((100 - recent[recent.length - 1]!) / growth))
+}
+
+type TextStyle = { size?: number; color?: string; opacity?: number; anchor?: 'start' | 'end' | 'middle'; weight?: number; lamp?: boolean }
+
+/**
+ * The hologram: a woman of light standing in a projector's cone, drawn as a
+ * bust in scan slices with a sweep line and the odd glitch. She is this mod's
+ * own figure, modelled on no one.
+ */
+function hologram(p: Palette, ground: string, animated: boolean) {
+  const tint = p.hud.you
+  const flicker = animated
+    ? `<animate attributeName="opacity" values="0.95;0.72;0.95;0.88;0.45;0.95" keyTimes="0;0.31;0.34;0.7;0.72;1" dur="4.6s" repeatCount="indefinite"/>`
+    : ''
+  const glitch = animated
+    ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;2.5 0;0 0;-2 0;0 0" keyTimes="0;0.45;0.47;0.5;0.86;0.88" calcMode="discrete" dur="5.8s" repeatCount="indefinite"/>`
+    : ''
+  const sweep = animated
+    ? `<rect x="8" y="4" width="76" height="3.5" fill="#ffffff" opacity="0.5"><animate attributeName="y" values="4;116" dur="3.4s" repeatCount="indefinite"/></rect>`
+    : ''
+  const breathe = animated
+    ? `<animate attributeName="opacity" values="0.26;0.38;0.26" dur="3.8s" repeatCount="indefinite"/>`
+    : ''
+
+  // The figure, in a 90 x 132 cell with her feet at the emitter (y 122).
+  const hair =
+    'M45 12C30 12 23 23 23 38C23 56 20 72 15 88C24 92 33 88 36 76L36 58L54 58L55 74' +
+    'C57 82 62 87 69 89C71 76 68 56 68 38C68 23 60 12 45 12Z'
+  const face = '<ellipse cx="45" cy="38" rx="12" ry="15.5"/>'
+  const neck = '<path d="M40.5 50h9v13h-9z"/>'
+  const shoulders = '<path d="M17 122C18 94 28 72 40 65L50 65C62 72 72 94 73 122Z"/>'
+  const fringe = 'M32.5 34C33 22 41 17 50 19C55 21 57.5 26 57.5 32C51 24 41 24 32.5 34Z'
+
+  // The person's own portrait, when the mod carries one: projected as a
+  // framed image over the drawn figure, under the hologram's texture (fine
+  // scan lines), a band of light that sweeps down it, and a faint flicker.
+  // If the app won't draw an embedded picture, the figure beneath still shows.
+  const hasPortrait = PORTRAIT !== ''
+  const sheen = animated
+    ? `<animate attributeName="y" values="-34;126" dur="9s" repeatCount="indefinite"/>`
+    : ''
+  const shimmer = animated
+    ? `<animate attributeName="opacity" values="1;0.9;1;1;0.82;1" keyTimes="0;0.3;0.33;0.7;0.72;1" dur="5.2s" repeatCount="indefinite"/>`
+    : ''
+  const portraitDefs = hasPortrait
+    ? `<clipPath id="frame"><rect x="4" y="8" width="82" height="114" rx="5"/></clipPath>` +
+      `<filter id="soften" x="0" y="0" width="100%" height="100%"><feGaussianBlur stdDeviation="0.55"/></filter>` +
+      `<linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b6a9ff" stop-opacity="0"/><stop offset="0.5" stop-color="#b6a9ff" stop-opacity="0.34"/><stop offset="1" stop-color="#b6a9ff" stop-opacity="0"/></linearGradient>` +
+      `<pattern id="weave" width="3" height="3" patternUnits="userSpaceOnUse"><rect y="2" width="3" height="1" fill="#1a052e" opacity="0.5"/></pattern>`
+    : ''
+  const portrait = hasPortrait
+    ? `<g clip-path="url(#frame)">` +
+      // the picture as colored cells, softened so the cells read as one image
+      `<g filter="url(#soften)">${PORTRAIT}${shimmer}</g>` +
+      `<rect x="4" y="8" width="82" height="114" fill="url(#weave)"/>` +
+      `<rect x="4" y="${animated ? -34 : 40}" width="82" height="34" fill="url(#sheen)">${sheen}</rect>` +
+      `</g>` +
+      `<rect x="4" y="8" width="82" height="114" rx="5" fill="none" stroke="${tint}" stroke-width="1.2" opacity="0.75" filter="url(#lamp)"/>`
+    : ''
+
+  return {
+    defs:
+      portraitDefs +
+      `<linearGradient id="cone" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="${tint}" stop-opacity="0.9"/><stop offset="1" stop-color="${tint}" stop-opacity="0"/></linearGradient>` +
+      `<clipPath id="figure"><path d="${hair}"/>${face}${neck}${shoulders}</clipPath>` +
+      `<clipPath id="skin">${face}${neck}</clipPath>` +
+      `<pattern id="slice" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="1.8" fill="${tint}"/></pattern>`,
+    body:
+      `<path d="M36 124L4 6h82L54 124z" fill="url(#cone)" opacity="0.26">${breathe}</path>` +
+      `<g>${glitch}<g filter="url(#lamp)">` +
+      `<g clip-path="url(#figure)"><rect x="4" y="4" width="84" height="120" fill="url(#slice)" opacity="0.95">${flicker}</rect>${sweep}</g>` +
+      `<g clip-path="url(#skin)"><rect x="30" y="20" width="30" height="46" fill="#ffffff" opacity="0.34"/></g>` +
+      `<path d="${fringe}" fill="${tint}" opacity="0.92"/>` +
+      `</g>` +
+      // eyes and mouth: small gaps in the light
+      `<path d="M38 39.5h5M47.5 39.5h5" stroke="${ground}" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>` +
+      `<path d="M42.5 47.5q2.5 1.8 5 0" fill="none" stroke="${ground}" stroke-width="1.3" stroke-linecap="round" opacity="0.8"/>` +
+      portrait +
+      `</g>` +
+      `<ellipse cx="45" cy="124" rx="19" ry="2.6" fill="${tint}" filter="url(#lamp)"/>`,
+  }
+}
+
+const cache = new Map<string, string>()
+
+/**
+ * The console's SVG. Readings are baked into the drawing, so it is rebuilt
+ * when one changes: at the end of a turn, and as a limit's clock runs down.
+ */
+export function consoleSvg(id: PresetId, d: ConsoleData, animated = false): string {
+  const key = `${id}:${animated ? 'anim' : 'still'}:${JSON.stringify(d)}`
+  const hit = cache.get(key)
+  if (hit) return hit
+  // Readings change through a session; don't keep every drawing ever made.
+  if (cache.size > 60) cache.clear()
+
+  const p: Palette = PRESETS[id]
+  const text = (x: number | string, y: number, body: string, s: TextStyle = {}) => {
+    const size = s.size ?? 9
+    return (
+      `<text x="${x}" y="${y}" font-size="${size}" letter-spacing="${(size * (size > 14 ? 0.04 : 0.14)).toFixed(1)}" ` +
+      `text-anchor="${s.anchor ?? 'start'}" font-weight="${s.weight ?? 600}" ${FONT} fill="${s.color ?? p.hud.primary}" ` +
+      `fill-opacity="${s.opacity ?? 1}"${s.lamp ? ' filter="url(#lamp)"' : ''}>${esc(body)}</text>`
+    )
+  }
+  const heading = (x: number, body: string) => text(x, 18, body, { opacity: 0.72 })
+  const note = (x: number | string, y: number, body: string, s: TextStyle = {}) =>
+    text(x, y, body, { size: 8, opacity: 0.55, weight: 500, ...s })
+
+  // ── the companion's cell, or a small tracking grid when she is away ──────
+  const holo = d.hasCompanion ? hologram(p, d.ground, animated) : { defs: '', body: '' }
+  const idle = d.hasCompanion
+    ? ''
+    : `<path d="M10 34H80M10 66H80M10 98H80M25 14V118M45 14V118M65 14V118" stroke="${p.hud.grid}" stroke-width="0.6" opacity="0.35"/>` +
+      `<rect x="37" y="58" width="16" height="16" fill="none" stroke="#ffe14d" stroke-width="1.4"/>`
+
+  // ── CONTEXT ──────────────────────────────────────────────────────────────
+  const CX = 108
+  const CW = 228
+  const cx = clamp(Math.round(d.context), 0, 100)
+  const cxColor = level(p, cx)
+  const total = d.window > 0 ? d.window : 0
+  const partColors = [p.hud.secondary, p.hud.primary, p.hud.you, p.hud.grid]
+  const used = d.parts.filter(part => part.tokens > 0)
+  const shown = used.slice(0, 2)
+  const rest = used.slice(2).reduce((sum, part) => sum + part.tokens, 0)
+  const stack = rest > 0 ? [...shown, { name: 'Other', tokens: rest }] : shown
+
+  let bar = `<rect x="${CX}" y="54" width="${CW}" height="12" fill="${p.hud.primary}" opacity="0.13"/>`
+  let legend = ''
+  if (total > 0 && stack.length > 0) {
+    let x = CX
+    let lx = CX
+    stack.forEach((part, i) => {
+      const w = Math.max(1.5, (CW * part.tokens) / total)
+      const color = partColors[i % partColors.length]!
+      bar += `<rect x="${x.toFixed(1)}" y="54" width="${Math.min(w, CX + CW - x).toFixed(1)}" height="12" fill="${color}" filter="url(#lamp)"/>`
+      x += w + 1
+      const name = `${part.name.toUpperCase().slice(0, 12)} ${Math.round((100 * part.tokens) / total)}%`
+      legend += `<rect x="${lx}" y="73" width="7" height="7" fill="${color}"/>` + note(lx + 10, 80, name, { opacity: 0.75 })
+      lx += 10 + name.length * 5.1 + 12
+    })
+    if (d.reserve > 0) {
+      const w = (CW * d.reserve) / total
+      bar += `<rect x="${(CX + CW - w).toFixed(1)}" y="54" width="${w.toFixed(1)}" height="12" fill="url(#hatch)"/>`
+      if (w >= 34) bar += note(CX + CW, 51, 'RESERVE', { anchor: 'end', size: 7, opacity: 0.5 })
+    }
+  } else {
+    // no breakdown: one plain fill
+    bar += `<rect x="${CX}" y="54" width="${((CW * cx) / 100).toFixed(1)}" height="12" fill="${cxColor}" filter="url(#lamp)"/>`
+    legend = note(CX, 80, cx >= 85 ? 'NEARLY FULL' : cx >= 65 ? 'FILLING UP' : 'ROOM TO WORK', { color: cxColor, opacity: 0.8 })
+  }
+
+  // the trend: context at the end of each recent turn
+  const TY = 90
+  const TH = 22
+  let trend = `<path d="M${CX} ${TY + TH + 0.5}H${CX + CW}" stroke="${p.hud.primary}" stroke-width="1" opacity="0.25"/>`
+  if (d.trend.length >= 2) {
+    const pts = d.trend.slice(-24)
+    const step = CW / (pts.length - 1)
+    const at = (v: number, i: number) => `${(CX + i * step).toFixed(1)},${(TY + TH - (TH * clamp(v, 0, 100)) / 100).toFixed(1)}`
+    const line = pts.map(at).join(' ')
+    const lastX = CX + (pts.length - 1) * step
+    const lastY = TY + TH - (TH * clamp(pts[pts.length - 1]!, 0, 100)) / 100
+    trend +=
+      `<polygon points="${CX},${TY + TH} ${line} ${lastX.toFixed(1)},${TY + TH}" fill="${cxColor}" opacity="0.16"/>` +
+      `<polyline points="${line}" fill="none" stroke="${cxColor}" stroke-width="1.4" filter="url(#lamp)"/>` +
+      `<circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="2.4" fill="${cxColor}"/>`
+    const room = turnsOfRoom(d.trend)
+    trend += note(CX, TY + TH + 12, `CONTEXT AFTER EACH OF THE LAST ${pts.length} TURNS`)
+    if (room !== undefined) {
+      trend += note(CX + CW, TY + 6, room === 0 ? 'FULL AT THIS RATE' : `ABOUT ${room} TURNS OF ROOM`, { anchor: 'end', color: cxColor, opacity: 0.9 })
+    }
+  } else {
+    trend += note(CX, TY + 14, 'TREND APPEARS AFTER TWO TURNS', { opacity: 0.4 })
+  }
+
+  const context =
+    heading(CX, 'CONTEXT') +
+    (total > 0 ? note(CX + CW, 18, `${tokenLabel(d.tokens)} OF ${tokenLabel(total)} TOKENS`, { anchor: 'end' }) : '') +
+    text(CX, 46, `${cx}%`, { size: 26, color: cxColor, weight: 700, lamp: true }) +
+    text(CX + (cx >= 100 ? 74 : cx >= 10 ? 60 : 44), 46, 'USED', { size: 9, color: cxColor, opacity: 0.8 }) +
+    bar + legend + trend
+
+  // ── PLAN LIMITS ──────────────────────────────────────────────────────────
+  const LX = 350
+  const LW = 198
+  const rows = d.limits.slice(0, 2)
+  let limits = heading(LX, 'PLAN LIMITS')
+  if (rows.length === 0) {
+    // A new session has no reading until Claude has replied once.
+    limits += note(LX, 46, 'NO READING YET', { opacity: 0.5 }) +
+      note(LX, 60, 'SHOWS AFTER THE NEXT REPLY', { opacity: 0.4 })
+  } else {
+    limits += note(LX + LW, 18, '▼ TIME GONE', { anchor: 'end' })
+    rows.forEach((row, i) => {
+      const y = 26 + i * 50
+      const pct = clamp(Math.round(row.percent), 0, 100)
+      const color = level(p, pct)
+      const lit = Math.round((20 * pct) / 100)
+      let on = ''
+      let off = ''
+      for (let k = 0; k < 20; k++) {
+        const seg = `M${LX + k * 10} ${y + 20}h8v10h-8z`
+        if (k < lit) on += seg
+        else off += seg
+      }
+      limits +=
+        text(LX, y + 12, row.name, { opacity: 0.8 }) +
+        text(LX + LW, y + 13, `${pct}%`, { size: 16, color, anchor: 'end', weight: 700, lamp: true }) +
+        (off ? `<path d="${off}" fill="${color}" opacity="0.16"/>` : '') +
+        (on ? `<path d="${on}" fill="${color}" filter="url(#lamp)"/>` : '')
+      let verdict = ''
+      if (row.elapsed !== null) {
+        const mx = LX + LW * clamp(row.elapsed, 0, 1)
+        limits += `<path d="M${mx.toFixed(1)} ${y + 19}l-4 -5.5h8z" fill="#ffffff" opacity="0.9"/>`
+        const gone = row.elapsed * 100
+        verdict = pct > gone + 10 ? ' · AHEAD OF PACE' : pct < gone - 10 ? ' · UNDER PACE' : ' · ON PACE'
+      }
+      const foot = row.resets === '' ? '' : `RESETS ${row.resets} · ${row.left} LEFT${verdict}`
+      limits += note(LX, y + 42, foot)
+    })
+  }
+
+  // ── TOOL CALLS PER TURN ──────────────────────────────────────────────────
+  const AX = 570
+  const AW = 172
+  const top = 30
+  const base = 104
+  const turns = d.turns.slice(-24)
+  let activity = heading(AX, 'TOOL CALLS PER TURN') +
+    `<path d="M${AX} ${base + 0.5}H${AX + AW}" stroke="${p.hud.primary}" stroke-width="1" opacity="0.35"/>`
+  if (turns.length === 0) {
+    activity += note(AX, 64, 'NO TURNS RECORDED YET', { opacity: 0.4 })
+  } else {
+    const peak = Math.max(1, ...turns.map(t => t.ops))
+    const sum = turns.reduce((n, t) => n + t.ops, 0)
+    const failed = turns.reduce((n, t) => n + t.faults, 0)
+    let ok = ''
+    let bad = ''
+    let latest = ''
+    turns.forEach((t, i) => {
+      // right-aligned: the newest turn is the last bar
+      const x = AX + AW - (turns.length - i) * 7
+      const h = t.ops === 0 ? 1.5 : Math.max(3, ((base - top) * t.ops) / peak)
+      const failH = t.faults > 0 ? Math.max(3, (h * t.faults) / Math.max(1, t.ops)) : 0
+      const seg = `M${x} ${(base - h).toFixed(1)}h5v${(h - failH).toFixed(1)}h-5z`
+      if (i === turns.length - 1) latest = seg
+      else ok += seg
+      if (failH > 0) bad += `M${x} ${(base - failH).toFixed(1)}h5v${failH.toFixed(1)}h-5z`
+    })
+    activity +=
+      (ok ? `<path d="${ok}" fill="${p.hud.secondary}" opacity="0.6"/>` : '') +
+      (latest ? `<path d="${latest}" fill="${p.hud.secondary}" filter="url(#lamp)"/>` : '') +
+      (bad ? `<path d="${bad}" fill="${p.hud.alert}" filter="url(#lamp)"/>` : '') +
+      `<path d="M${AX} ${top + 0.5}H${AX + AW}" stroke="${p.hud.primary}" stroke-width="1" stroke-dasharray="2 4" opacity="0.3"/>` +
+      note(AX, top - 3, `PEAK ${peak}`, { size: 7.5 }) +
+      (sum === 0 ? note(AX, 64, 'NO TOOL CALLS YET', { opacity: 0.4 }) : '') +
+      note(AX, base + 13, turns.length === 1 ? `LAST TURN · ${sum} CALLS` : `LAST ${turns.length} TURNS · AVG ${Math.round(sum / turns.length)}`) +
+      (failed > 0 ? note(AX + AW, base + 13, `${failed} FAILED`, { anchor: 'end', color: p.hud.alert, opacity: 0.95 }) : '')
+  }
+
+  const chase = animated
+    ? `<animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.1s" repeatCount="indefinite"/>`
+    : ''
+  // Animated, the frame is as wide as the band and the drawing is in px.
+  // Still, it is an image, which needs a size of its own to scale from.
+  const root = animated
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="${H}">`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="${CONSOLE.minWidth}" height="${H}" viewBox="0 0 ${CONSOLE.minWidth} ${H}">`
+
+  const svg =
+    root +
+    `<defs>` +
+    `<filter id="lamp" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
+    `<pattern id="scan" width="3" height="3" patternUnits="userSpaceOnUse"><rect width="3" height="1" fill="#000" opacity="0.2"/></pattern>` +
+    `<pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="1.6" height="4" fill="${p.hud.primary}" opacity="0.55"/></pattern>` +
+    `<pattern id="ruler" width="13" height="6" patternUnits="userSpaceOnUse"><path d="M0.5 6v-3" stroke="${p.hud.primary}" stroke-width="1" opacity="0.45"/></pattern>` +
+    holo.defs +
+    `</defs>` +
+    `<rect width="100%" height="${H}" fill="${d.ground}"/>` +
+    `<line x1="0" y1="2" x2="100%" y2="2" stroke="${p.hud.primary}" stroke-width="1.5" stroke-dasharray="14 14" opacity="0.8">${chase}</line>` +
+    `<rect x="0" y="${H - 6}" width="100%" height="6" fill="url(#ruler)"/>` +
+    `<path d="M96 12V${H - 12}M343 12V${H - 12}M561 12V${H - 12}" stroke="${p.hud.primary}" stroke-width="1" opacity="0.22"/>` +
+    holo.body + idle +
+    context + limits + activity +
+    `<rect width="100%" height="${H}" fill="url(#scan)"/>` +
+    `</svg>`
+
+  cache.set(key, svg)
+  return svg
+}

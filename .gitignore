@@ -1,0 +1,10 @@
+# Written by Claude Code when it loads the mod: types for your build.
+.claude-plugin/types/
+tsconfig.json
+
+# Tools and editors
+node_modules/
+__pycache__/
+*.log
+.DS_Store
+Thumbs.db
