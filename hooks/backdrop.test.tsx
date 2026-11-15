@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { cleanName, clockLabel, companionLine, limitLabel, parseLimits, uptimeLabel } from './companion'
-import type { Vitals } from './companion'
+import { cleanName, clockLabel, companionLine, limitLabel, parseLimits, resetAlerts, uptimeLabel } from './companion'
+import type { Limit, Vitals } from './companion'
 import { consoleSvg, moodOf, tokenLabel, turnsOfRoom } from './console'
 import { secondsLabel, turnLabel } from './live-row'
 import type { ConsoleData } from './console'
@@ -26,15 +26,26 @@ const SAMPLE: ConsoleData = {
 
 type Stored = Record<string, unknown>
 type SetCall = { backdrop?: { scene?: string; glass?: unknown }; colors?: unknown; overrideColorScheme?: string }
+type Note = { text: string; title?: string; key?: string; at?: number }
+
+/** The plan limits a session reports unless a test says otherwise: neither is running out. */
+const LIMITS: Limit[] = [{ kind: 'five_hour', percentUsed: 12 }, { kind: 'seven_day', percentUsed: 71.5 }]
 
 /**
  * The stubs most tests need: a store backed by `stored`, a theme that records
  * each set and answers as `theme` says, a clock, and the session's readouts.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function world(on: any, stored: Stored = {}, theme: 'drawn' | 'undrawn' | 'refused' = 'undrawn') {
+function world(
+  on: any,
+  stored: Stored = {},
+  theme: 'drawn' | 'undrawn' | 'refused' = 'undrawn',
+  limits: { now: Limit[] } = { now: LIMITS },
+) {
   const sets: SetCall[] = []
   const calls: string[] = []
+  const notes: Note[] = []
+  const cancels: string[] = []
   let wasStarted = false
   mock.clock(on, { now: NOW })
   on('command.register', () => ({ value: { command: 'theme-mod' } }))
@@ -57,11 +68,19 @@ function world(on: any, stored: Stored = {}, theme: 'drawn' | 'undrawn' | 'refus
   })
   on('ui.toast', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
+  on('ui.notify', (_: unknown, e: Note) => {
+    notes.push(e)
+    return { value: { isSent: true, channel: 'client' } }
+  })
+  on('ui.cancelNotify', (_: unknown, e: unknown) => {
+    cancels.push(typeof e === 'string' ? e : String((e as { key?: string }).key))
+    return { value: { isSent: true } }
+  })
   on('session.usage', () => ({
     value: {
       startedAt: NOW - 102 * 60_000,
       context: { window: 200000, percent: 43 },
-      rateLimits: [{ kind: 'five_hour', percentUsed: 12 }, { kind: 'seven_day', percentUsed: 71.5 }],
+      rateLimits: limits.now,
     },
   }))
   on('session.model', () => ({ value: 'claude-fable-5-2' }))
@@ -80,7 +99,7 @@ function world(on: any, stored: Stored = {}, theme: 'drawn' | 'undrawn' | 'refus
     wasStarted = true
     return { cwd: e.cwd }
   })
-  return { sets, calls, stored, wasStarted: () => wasStarted }
+  return { sets, calls, stored, notes, cancels, wasStarted: () => wasStarted }
 }
 
 const START = { cwd: '/', surface: 'desktop', isInteractive: true } as const
@@ -498,6 +517,68 @@ test('the readouts count real tool calls and turns', async ($, on) => {
   await failed.unmount()
 })
 
+test('a limit running out books one notification for its reset, and alerts off takes it back', async ($, on) => {
+  const resetsAt = new Date(NOW + 3 * 3_600_000).toISOString()
+  const hot: Limit[] = [{ kind: 'five_hour', percentUsed: 88, resetsAt }, { kind: 'seven_day', percentUsed: 40, resetsAt }]
+
+  // what to book, as a plain reading of the limits
+  expect(resetAlerts(hot, NOW)).toEqual([
+    { key: 'limit-five_hour', at: NOW + 3 * 3_600_000, text: 'Your five-hour limit has reset. You have a fresh window to work in.' },
+  ])
+  // nothing for a limit with room, a reset already past, one with no time, or one a client won't hold that long
+  expect(resetAlerts([{ kind: 'five_hour', percentUsed: 79, resetsAt }], NOW)).toEqual([])
+  expect(resetAlerts([{ kind: 'five_hour', percentUsed: 95, resetsAt: new Date(NOW - 1000).toISOString() }], NOW)).toEqual([])
+  expect(resetAlerts([{ kind: 'five_hour', percentUsed: 95 }], NOW)).toEqual([])
+  expect(resetAlerts([{ kind: 'seven_day', percentUsed: 95, resetsAt: new Date(NOW + 8 * 86_400_000).toISOString() }], NOW)).toEqual([])
+  expect(resetAlerts(hot, 0)).toEqual([])
+
+  const limits = { now: LIMITS }
+  const { notes, cancels, stored } = world(on, {}, 'undrawn', limits)
+  on('session.measure', () => ({ changed: [] }))
+  const run = (args: string) => $.command.run({ command: 'theme-mod', args } as never) as Promise<{ text: string }>
+
+  // with room on every limit, nothing is booked and nothing is asked of the app
+  await $.session.start(START)
+  expect(notes.length).toBe(0)
+  expect(cancels.length).toBe(0)
+
+  // the limit passes 80 percent: one notification, at its reset, signed by the companion
+  limits.now = hot
+  await $.session.measure({} as never)
+  expect(notes.length).toBe(1)
+  expect(notes[0]?.key).toBe('limit-five_hour')
+  expect(notes[0]?.at).toBe(NOW + 3 * 3_600_000)
+  expect(notes[0]?.title).toBe('JOI')
+  expect(notes[0]?.text).toContain('five-hour limit has reset')
+  // a second reading of the same limits books nothing more
+  await $.session.measure({} as never)
+  expect(notes.length).toBe(1)
+
+  // alerts off takes it back and books no more
+  expect((await run('alerts off')).text).toContain('Alerts off')
+  expect(stored.alerts).toBe(false)
+  expect(cancels).toEqual(['limit-five_hour'])
+  await $.session.measure({} as never)
+  expect(notes.length).toBe(1)
+  expect((await run('status')).text).toContain('ALERTS off')
+
+  // alerts on books it again; the window resets and the booking is let go
+  expect((await run('alerts on')).text).toContain('Alerts on')
+  expect(notes.length).toBe(2)
+  limits.now = LIMITS
+  await $.session.measure({} as never)
+  expect(cancels).toEqual(['limit-five_hour', 'limit-five_hour'])
+
+  // turning the theme off takes back whatever is booked
+  limits.now = hot
+  await $.session.measure({} as never)
+  expect(notes.length).toBe(3)
+  await run('off')
+  expect(cancels.at(-1)).toBe('limit-five_hour')
+  await $.session.measure({} as never)
+  expect(notes.length).toBe(3)
+})
+
 test('a card reads a few facts off the tool result, and nothing off one it does not know', async () => {
   expect(toolFacts('Bash', { stdout: 'a\nb\nc\n\n', stderr: 'warn\n', interrupted: false })).toEqual(['4 LINES'])
   expect(toolFacts('Bash', { stdout: '', stderr: '', interrupted: false })).toEqual(['NO OUTPUT'])
@@ -713,6 +794,8 @@ test('the control deck switches the look and the glass from its buttons', async 
   expect(stored.rain).toBe(false)
   await ui.press({ key: 'companion' })
   expect(stored['companion.on']).toBe(false)
+  await ui.press({ key: 'alerts' })
+  expect(stored.alerts).toBe(false)
   await ui.unmount()
 })
 

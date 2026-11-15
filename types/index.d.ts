@@ -55,6 +55,8 @@ declare module 'claude-code' {
       /** The hologram companion's name. */
       companion: string
       isCompanionOn: boolean
+      /** Whether the companion books a notification for the reset of a limit that is running out. */
+      isAlertsOn: boolean
       /** The last turns as JSON: a list of { o: tool calls, f: failed, c: context after }. */
       historyJson: string
       /** What fills the context as JSON: { tokens, window, parts, reserve }. */

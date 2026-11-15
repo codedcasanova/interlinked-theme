@@ -15,7 +15,7 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
   - **Plan limits:** how much of each limit is used against how much of its time has gone, and when it resets.
   - **Tool calls per turn:** one bar per recent turn, with failed calls in red.
   - A row of counters with session uptime and the date.
-- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed. Her line is typed out as she says it, beside a clock that counts seconds and a timer for the turn that is running. The light around her turns the color of a gauge that is filling up, and she flickers faster as it nears full.
+- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed. Her line is typed out as she says it, beside a clock that counts seconds and a timer for the turn that is running. The light around her turns the color of a gauge that is filling up, and she flickers faster as it nears full. When a plan limit passes 80 percent she books one desktop notification for the moment it resets.
 - **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls that say how long each ran and what came back, a lead on the working line that says what Claude is doing, and a stamp under each answer with its time and usage.
 - **A control deck.** A side panel with a button for every option.
 
@@ -70,6 +70,7 @@ Start a new session in the Code tab after installing. The colors, the city and t
 | `/theme-mod companion name <name>` | Renames the companion |
 | `/theme-mod rain on` · `off` | Turns the scene's motion on or off |
 | `/theme-mod style on` · `off` | Turns the tags and cards in the conversation on or off |
+| `/theme-mod alerts on` · `off` | Turns the limit-reset notification on or off |
 | `/theme-mod deck` | Opens the control deck |
 | `/theme-mod off` | Goes back to the app's own look |
 
@@ -93,6 +94,7 @@ A mod runs inside Claude Code with your permissions, so check one before you ins
 - times each tool call and reads its result as the app shows it, to put a line count or a count of changes on its card
 - stores your theme choices in the mod's own settings file
 - draws in the interface and adds the `/theme-mod` command
+- raises a desktop notification through the app when a plan limit that ran low resets (`/theme-mod alerts off` stops it)
 
 It makes no network requests, starts no processes, and reads or writes none of your project's files. To list every event it handles and every call it makes without running it:
 

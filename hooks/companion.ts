@@ -52,6 +52,36 @@ export const limitLabel = (kind: string) =>
 const limitName = (kind: string) =>
   kind === 'five_hour' ? 'five-hour' : kind === 'seven_day' ? 'weekly' : kind === 'spend_limit' ? 'spend' : kind.replace(/_/g, ' ')
 
+/** From this share of a limit used, the companion speaks of it and books a note for its reset. */
+export const HOT_LIMIT = 80
+
+/** The longest a client holds a booked notification. */
+const WEEK_MS = 7 * 86_400_000
+
+/** One notification to book: its name among this mod's, the moment to raise it, and what it says. */
+export type ResetAlert = { key: string; at: number; text: string }
+
+/**
+ * The notifications to hold at `now`: one for each limit used past HOT_LIMIT
+ * whose reset lies ahead, and no further ahead than a client will hold one.
+ * It is raised at the reset, so it says the limit is open again.
+ */
+export function resetAlerts(limits: readonly Limit[], now: number): ResetAlert[] {
+  if (now <= 0) return []
+  const alerts: ResetAlert[] = []
+  for (const limit of limits) {
+    if (limit.percentUsed < HOT_LIMIT || !limit.resetsAt) continue
+    const at = Date.parse(limit.resetsAt)
+    if (Number.isNaN(at) || at <= now || at - now >= WEEK_MS) continue
+    alerts.push({
+      key: `limit-${limit.kind.replace(/[^A-Za-z0-9_-]/g, '-')}`,
+      at,
+      text: `Your ${limitName(limit.kind)} limit has reset. You have a fresh window to work in.`,
+    })
+  }
+  return alerts
+}
+
 const two = (n: number) => String(n).padStart(2, '0')
 
 /** `21:17`, in the computer's own time zone. */
@@ -109,7 +139,7 @@ export function companionLine(v: Vitals): string {
   if (context >= 85) {
     return `Context is at ${context} percent. Run /compact soon, before it gets trimmed for you.`
   }
-  const hot = v.limits.find(limit => limit.percentUsed >= 80)
+  const hot = v.limits.find(limit => limit.percentUsed >= HOT_LIMIT)
   if (hot) {
     const resets = hot.resetsAt ? Date.parse(hot.resetsAt) : NaN
     const when = Number.isNaN(resets) ? '' : ` It resets at ${hhmm(resets)}.`

@@ -62,6 +62,8 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 | `/theme-mod companion on` | Shows her in the console, with her one-line updates |
 | `/theme-mod companion off` | Hides her. The gauges stay |
 | `/theme-mod companion name Nova` | Renames her. Use any name up to 16 letters |
+| `/theme-mod alerts on` | When a plan limit passes 80 percent, books one notification for the moment it resets. The default |
+| `/theme-mod alerts off` | Books no notifications, and takes back any already booked |
 
 ### The conversation
 
@@ -104,6 +106,12 @@ The plan limits and the chart are empty in a brand-new session. They fill in aft
 
 `/theme-mod style off` removes all of these.
 
+## The limit-reset notification
+
+When your 5-hour or weekly limit passes 80 percent, Joi books one notification with the app for the moment that limit resets. It arrives as a normal desktop notification, with her name on it, and says the limit is open again. The app holds it, so it arrives even if the session has ended by then.
+
+There is one per limit, never a stream: a newer reading replaces the one already booked. `/theme-mod alerts off` and `/theme-mod off` both take it back. It follows your system's and the app's own notification settings.
+
 ## If something is off
 
 | Problem | Try |
@@ -111,4 +119,5 @@ The plan limits and the chart are empty in a brand-new session. They fill in aft
 | The app feels slow | `/theme-mod glass solid`, or `/theme-mod rain off` |
 | Text is hard to read over the city | `/theme-mod glass frost`, or `/theme-mod glass solid` |
 | Nothing changed after installing | Start a new session in the Code tab. Type `/status` and check Claude Code is 2.1.325 or later |
+| You don't want notifications from the theme | `/theme-mod alerts off` |
 | You want it gone for now | `/theme-mod off` |

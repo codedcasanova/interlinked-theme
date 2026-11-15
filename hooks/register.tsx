@@ -14,7 +14,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs } from 'claude-code'
 
 import type { Band, Current, Glass } from '../types'
-import { DEFAULT_NAME, cleanName, clockLabel, companionLine, dateLabel, hhmm, parseLimits, uptimeLabel } from './companion'
+import {
+  DEFAULT_NAME, HOT_LIMIT, cleanName, clockLabel, companionLine, dateLabel, hhmm, parseLimits, resetAlerts, uptimeLabel,
+} from './companion'
 import type { Limit } from './companion'
 import { CONSOLE, consoleSvg } from './console'
 import type { LiveRowProps } from './live-row'
@@ -35,6 +37,7 @@ const STYLE = 'style'
 const GLASS = 'glass'
 const COMPANION = 'companion'
 const COMPANION_ON = 'companion.on'
+const ALERTS = 'alerts'
 
 /**
  * Explicit Svg sizes in CSS px. With `isInteractive` (which the animation
@@ -74,6 +77,7 @@ const minute = atom({ plugin: 'interlinked-theme', key: 'minute' } as const, 0)
 const folder = atom({ plugin: 'interlinked-theme', key: 'folder' } as const, '')
 const companion = atom({ plugin: 'interlinked-theme', key: 'companion' } as const, DEFAULT_NAME)
 const isCompanionOn = atom({ plugin: 'interlinked-theme', key: 'isCompanionOn' } as const, true)
+const isAlertsOn = atom({ plugin: 'interlinked-theme', key: 'isAlertsOn' } as const, true)
 const turnStartedAt = atom({ plugin: 'interlinked-theme', key: 'turnStartedAt' } as const, 0)
 const historyJson = atom({ plugin: 'interlinked-theme', key: 'historyJson' } as const, '[]')
 const contextJson = atom({ plugin: 'interlinked-theme', key: 'contextJson' } as const, '{}')
@@ -204,6 +208,59 @@ function keep(map: Map<string, number>, id: string, value: number): void {
 /** Set once an app asks this mod to draw its scene, which proves it draws backdrops. */
 let hasDrawnScene = false
 
+/**
+ * The reset notifications booked this load, by key, with the moment each is
+ * booked for. Module state: after a reload the next reading books them again
+ * under the same keys, which replaces what the app holds.
+ */
+const booked = new Map<string, number>()
+
+/**
+ * Keeps the app's booked notifications in step with the limits: one for the
+ * reset of each limit that is running out, none for the rest. A reading with
+ * nothing running out and nothing booked costs no call. Never throws.
+ */
+async function syncAlerts($: EngineInterface, limits: readonly Limit[]): Promise<void> {
+  try {
+    const mayBook = limits.some(limit => limit.percentUsed >= HOT_LIMIT)
+    if (!mayBook && booked.size === 0) return
+    const wanted =
+      mayBook && isPresetId(await read($, current)) && (await read($, isAlertsOn))
+        ? resetAlerts(limits, await $.clock.now())
+        : []
+    for (const key of [...booked.keys()]) {
+      if (wanted.some(alert => alert.key === key)) continue
+      booked.delete(key)
+      await $.ui.cancelNotify(key)
+    }
+    if (wanted.length === 0) return
+    // She signs it while she is in the console; otherwise the mod's own name heads it.
+    const title = (await read($, isCompanionOn)) ? await read($, companion) : undefined
+    for (const alert of wanted) {
+      if (booked.get(alert.key) === alert.at) continue
+      const sent = await $.ui.notify(alert.text, { ...(title ? { title } : {}), key: alert.key, at: alert.at })
+      if (sent.isSent) booked.set(alert.key, alert.at)
+    }
+  } catch {
+    // A notification that cannot be booked costs nothing else.
+  }
+}
+
+/**
+ * Takes back every reset notification: the ones booked this load, and the
+ * ones an earlier load would have booked for the limits as they stand.
+ */
+async function cancelAlerts($: EngineInterface): Promise<void> {
+  try {
+    const limits = parseLimits(await read($, limitsJson))
+    const keys = new Set([...booked.keys(), ...resetAlerts(limits, await $.clock.now()).map(alert => alert.key)])
+    booked.clear()
+    for (const key of keys) await $.ui.cancelNotify(key)
+  } catch {
+    // Nothing held, or no app to ask.
+  }
+}
+
 /** A readout value: four digits, as the old screens wrote them. */
 const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).padStart(4, '0')
 
@@ -286,6 +343,8 @@ async function loadChoices($: EngineInterface): Promise<Current> {
   await update($, companion, () => (typeof name === 'string' ? cleanName(name) : DEFAULT_NAME))
   const companionOn = await $.store.get(COMPANION_ON)
   await update($, isCompanionOn, () => companionOn !== false)
+  const alerts = await $.store.get(ALERTS)
+  await update($, isAlertsOn, () => alerts !== false)
 
   const saved = await $.store.get(CHOICE)
   const now: Current =
@@ -323,6 +382,7 @@ async function refreshReadouts($: EngineInterface): Promise<void> {
       usage.rateLimits.map(limit => ({ kind: limit.kind, percentUsed: limit.percentUsed, resetsAt: limit.resetsAt })),
     )
     await update($, limitsJson, () => limits)
+    await syncAlerts($, parseLimits(limits))
     const began = usage.startedAt
     if (typeof began === 'number') await update($, startedAt, () => began)
   } catch {
@@ -363,10 +423,23 @@ async function nameCompanion($: EngineInterface, raw: string): Promise<string> {
   return `The companion answers to ${name} now.`
 }
 
+async function setAlerts($: EngineInterface, isOn: boolean): Promise<string> {
+  await $.store.set(ALERTS, isOn)
+  await update($, isAlertsOn, () => isOn)
+  if (!isOn) {
+    await cancelAlerts($)
+    return 'Alerts off: no notifications are booked.'
+  }
+  await syncAlerts($, parseLimits(await read($, limitsJson)))
+  return 'Alerts on: when a limit passes 80 percent, a notification is booked for the moment it resets.'
+}
+
 async function choosePreset($: EngineInterface, id: PresetId): Promise<string> {
   await $.store.set(CHOICE, id)
   await update($, current, () => id as Current)
   const set = await apply($, id)
+  // coming back from `off`: book again what turning off took back
+  await syncAlerts($, parseLimits(await read($, limitsJson)))
   $.ui.toast(`${PRESETS[id].label.toUpperCase()} // ONLINE`)
   return set.isDrawn
     ? `Look set: ${PRESETS[id].label}.`
@@ -405,6 +478,7 @@ async function turnOff($: EngineInterface): Promise<string> {
   await $.store.set(CHOICE, 'off')
   await update($, current, () => 'off' as Current)
   await update($, isBackdropDrawn, () => false)
+  await cancelAlerts($)
   await $.theme.clear()
   return 'Theme off: back to the app’s own look.'
 }
@@ -422,6 +496,7 @@ const usage = () =>
     `/${COMMAND} companion name <name>     what the hologram answers to`,
     `/${COMMAND} rain on|off               motion in the scene`,
     `/${COMMAND} style on|off              tags and cards in the conversation`,
+    `/${COMMAND} alerts on|off             a notification when a limit that ran low resets`,
     `/${COMMAND} deck                      open the control deck`,
     `/${COMMAND} off                       back to the app's own look`,
   ].join('\n')
@@ -437,6 +512,7 @@ async function statusText($: EngineInterface): Promise<string> {
     `HOLO   ${(await read($, isCompanionOn)) ? (await read($, companion)) : 'off'}`,
     `RAIN   ${(await read($, isAnimated)) ? 'on' : 'off'}`,
     `STYLE  ${(await read($, isStyled)) ? 'on' : 'off'}`,
+    `ALERTS ${(await read($, isAlertsOn)) ? 'on' : 'off'}`,
     '',
     usage(),
   ].join('\n')
@@ -479,6 +555,11 @@ async function runCommand($: EngineInterface, args: string) {
     return { text: await setStyle($, option === 'on') }
   }
 
+  if (verb === 'alerts') {
+    if (!isOnOff(option)) return { text: `Usage: /${COMMAND} alerts on|off` }
+    return { text: await setAlerts($, option === 'on') }
+  }
+
   if (verb === 'deck' || verb === 'panel') {
     if ((await read($, current)) === 'off') {
       return { text: `The theme is off. Pick a look first: /${COMMAND} ${DEFAULT}` }
@@ -503,8 +584,8 @@ export const register: Register = on => {
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'Interlinked look: presets, glass, command console, companion, motion, row styling, control deck',
-        argumentHint: `[${PRESET_IDS.join('|')}|glass|band|companion|rain|style|deck|off]`,
+        description: 'Interlinked look: presets, glass, command console, companion, motion, row styling, alerts, control deck',
+        argumentHint: `[${PRESET_IDS.join('|')}|glass|band|companion|rain|style|alerts|deck|off]`,
       })
     } catch {
       // The name is taken on this build: the look still loads.
@@ -978,6 +1059,7 @@ export const register: Register = on => {
     const level = await read($, glass)
     const choice = await read($, band)
     const hasCompanion = await read($, isCompanionOn)
+    const hasAlerts = await read($, isAlertsOn)
     const name = await read($, companion)
     const p = PRESETS[now]
     const hud = p.hud
@@ -1062,6 +1144,12 @@ export const register: Register = on => {
             label={hasCompanion ? `${name}: on` : `${name}: off`}
             variant={hasCompanion ? 'primary' : 'secondary'}
             onPress={() => setCompanion($, !hasCompanion)}
+          />
+          <Button
+            key="alerts"
+            label={hasAlerts ? 'Alerts: on' : 'Alerts: off'}
+            variant={hasAlerts ? 'primary' : 'secondary'}
+            onPress={() => setAlerts($, !hasAlerts)}
           />
           <Button key="off" label="Theme off" variant="secondary" onPress={() => turnOff($)} />
         </Box>
