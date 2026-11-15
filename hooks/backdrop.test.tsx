@@ -6,7 +6,7 @@ import { consoleSvg, moodOf, tokenLabel, turnsOfRoom } from './console'
 import { secondsLabel, turnLabel } from './live-row'
 import type { ConsoleData } from './console'
 import { LOOKS } from './looks'
-import { PRESET_IDS, railSvg, sceneSvg } from './scenes'
+import { PRESETS, PRESET_IDS, railSvg, sceneSvg } from './scenes'
 import { durationLabel, groupTally, toolFacts, toolLabel } from './tools'
 
 const MOD = 'interlinked-theme'
@@ -228,6 +228,28 @@ test('the companion carries the mood of the fullest gauge', async () => {
   for (const id of PRESET_IDS) {
     expect(consoleSvg(id, { ...SAMPLE, limits: [limit(93), limit(71)] }, true, picture).length < 131072).toBe(true)
   }
+})
+
+test('a gauge has three colors no one could confuse, in every look', async () => {
+  const rgb = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]
+  const apart = (a: string, b: string) => Math.hypot(...rgb(a).map((v, i) => v - rgb(b)[i]!))
+  for (const id of PRESET_IDS) {
+    const { calm, warn, alert, you } = PRESETS[id].hud
+    // room, filling up, nearly out: far apart from each other
+    expect(apart(calm, warn) > 90).toBe(true)
+    expect(apart(warn, alert) > 85).toBe(true)
+    expect(apart(calm, alert) > 130).toBe(true)
+    // and the companion's own tint is not the warning color
+    expect(apart(you, warn) > 60).toBe(true)
+  }
+  // the gauges and the companion's light take them
+  const at = (id: 'amber-dust' | 'acid-rain', context: number) =>
+    consoleSvg(id, { ...SAMPLE, context, limits: [] }, false, '')
+  expect(at('amber-dust', 30).includes('fill="#9bbf4a" fill-opacity="1" filter="url(#lamp)">30%<')).toBe(true)
+  expect(at('amber-dust', 70).includes('fill="#ffc247" fill-opacity="1" filter="url(#lamp)">70%<')).toBe(true)
+  expect(at('acid-rain', 70).includes('fill="#ff9d2e" fill-opacity="1" filter="url(#lamp)">70%<')).toBe(true)
+  expect(at('acid-rain', 70).includes('fill="none" stroke="#ff9d2e"')).toBe(true)
+  expect(at('acid-rain', 90).includes('fill="#ff5d6c" fill-opacity="1" filter="url(#lamp)">90%<')).toBe(true)
 })
 
 test('the companion says the most pressing true thing', async () => {

@@ -56,7 +56,7 @@ const ALARM = 85
 
 /** A gauge's color by how full it is: calm, then warm, then alarm. */
 const level = (p: Palette, percent: number) =>
-  percent >= ALARM ? p.hud.alert : percent >= WARM ? p.hud.primary : p.hud.secondary
+  percent >= ALARM ? p.hud.alert : percent >= WARM ? p.hud.warn : p.hud.calm
 
 /** How the companion carries herself: at ease, watchful, or raising the alarm. */
 export type Mood = 'calm' | 'warm' | 'alarm'
@@ -96,7 +96,7 @@ type TextStyle = { size?: number; color?: string; opacity?: number; anchor?: 'st
  */
 function hologram(p: Palette, ground: string, animated: boolean, mood: Mood, picture: string) {
   const tint = p.hud.you
-  const aura = mood === 'alarm' ? p.hud.alert : mood === 'warm' ? p.hud.primary : tint
+  const aura = mood === 'alarm' ? p.hud.alert : mood === 'warm' ? p.hud.warn : tint
   // a shorter period is a faster flicker
   const pace = mood === 'alarm' ? 0.4 : mood === 'warm' ? 0.7 : 1
   const dur = (seconds: number) => `${Number((seconds * pace).toFixed(2))}s`
@@ -232,7 +232,7 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
   const cx = clamp(Math.round(d.context), 0, 100)
   const cxColor = level(p, cx)
   const total = d.window > 0 ? d.window : 0
-  const partColors = [p.hud.secondary, p.hud.primary, p.hud.you, p.hud.grid]
+  const partColors = [p.hud.calm, p.hud.primary, p.hud.you, p.hud.grid]
   const used = d.parts.filter(part => part.tokens > 0)
   const shown = used.slice(0, 2)
   const rest = used.slice(2).reduce((sum, part) => sum + part.tokens, 0)
@@ -362,8 +362,8 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
       if (failH > 0) bad += `M${x} ${(base - failH).toFixed(1)}h5v${failH.toFixed(1)}h-5z`
     })
     activity +=
-      (ok ? `<path d="${ok}" fill="${p.hud.secondary}" opacity="0.6"/>` : '') +
-      (latest ? `<path d="${latest}" fill="${p.hud.secondary}" filter="url(#lamp)"/>` : '') +
+      (ok ? `<path d="${ok}" fill="${p.hud.calm}" opacity="0.6"/>` : '') +
+      (latest ? `<path d="${latest}" fill="${p.hud.calm}" filter="url(#lamp)"/>` : '') +
       (bad ? `<path d="${bad}" fill="${p.hud.alert}" filter="url(#lamp)"/>` : '') +
       `<path d="M${AX} ${top + 0.5}H${AX + AW}" stroke="${p.hud.primary}" stroke-width="1" stroke-dasharray="2 4" opacity="0.3"/>` +
       note(AX, top - 3, `PEAK ${peak}`, { size: 7.5 }) +

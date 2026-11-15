@@ -90,7 +90,13 @@ Left to right:
 - **Plan limits.** How much of your 5-hour and weekly usage is gone. The small white marker shows how much of that time window has passed. A bar ahead of the marker means you are using it faster than the clock.
 - **Tool calls per turn.** One bar for each recent turn. Red means a tool call failed.
 
-Colors mean the same thing everywhere: cyan is fine, amber is filling up, red is nearly out.
+A gauge's color says how full it is, and red always means nearly out:
+
+| Look | Room to work | Filling up (from 65%) | Nearly out (from 85%) |
+| --- | --- | --- | --- |
+| Neon Noir | cyan | amber | red |
+| Amber Dust | olive green | amber | red |
+| Acid Rain | green | orange | red |
 
 The gauges hold their figures while a turn runs and take the new ones when it ends, so the console's animation is never interrupted. Joi's line and the counters under the gauges stay live throughout.
 

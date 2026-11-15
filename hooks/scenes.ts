@@ -32,8 +32,13 @@ export type Palette = {
   sun?: { color: string; r: number; cx: number; cy: number; opacity: number }
   /** Drifting dust motes when animated (presets without rain). */
   dust?: string
-  /** Readout colors: phosphor text, a second hue, alerts, the grid, your tag. */
-  hud: { primary: string; secondary: string; alert: string; grid: string; you: string }
+  /**
+   * Readout colors: phosphor text, a second hue, alerts, the grid, your tag.
+   * `calm` and `warn` are what a gauge shows while there is room and while it
+   * is filling up; with `alert` they are three hues no one could confuse, in
+   * every look.
+   */
+  hud: { primary: string; secondary: string; alert: string; grid: string; you: string; calm: string; warn: string }
   seed: number
 }
 
@@ -57,7 +62,8 @@ export const PRESETS = {
     rainOpacity: 0.22,
     beams: '#ffd3a1',
     flame: '#ff9a2e',
-    hud: { primary: '#ffb000', secondary: '#2de2e6', alert: '#ff4d5e', grid: '#3aa0ff', you: '#ff3da6' },
+    // cyan, amber, red
+    hud: { primary: '#ffb000', secondary: '#2de2e6', alert: '#ff4d5e', grid: '#3aa0ff', you: '#ff3da6', calm: '#2de2e6', warn: '#ffb000' },
     seed: 2019,
   },
   'amber-dust': {
@@ -83,7 +89,8 @@ export const PRESETS = {
     // under the conversation, where it washed out the words over it.
     sun: { color: '#ffe0a3', r: 170, cx: 0.78, cy: 760, opacity: 0.7 },
     dust: '#ffe6b8',
-    hud: { primary: '#ffc247', secondary: '#ff8a2a', alert: '#e5484d', grid: '#ffb86b', you: '#f6e3c3' },
+    // The look is orange throughout, so a gauge with room is the look's green: olive, amber, red.
+    hud: { primary: '#ffc247', secondary: '#ff8a2a', alert: '#e5484d', grid: '#ffb86b', you: '#f6e3c3', calm: '#9bbf4a', warn: '#ffc247' },
     seed: 2049,
   },
   'acid-rain': {
@@ -105,7 +112,8 @@ export const PRESETS = {
     rainOpacity: 0.3,
     beams: '#9dfff0',
     flame: '#c6ff6b',
-    hud: { primary: '#7dffcf', secondary: '#35e0a1', alert: '#ff5d6c', grid: '#35e0a1', you: '#e6d04a' },
+    // The readouts are mint, so a gauge filling up turns orange: green, orange, red.
+    hud: { primary: '#7dffcf', secondary: '#35e0a1', alert: '#ff5d6c', grid: '#35e0a1', you: '#e6d04a', calm: '#35e0a1', warn: '#ff9d2e' },
     seed: 1982,
   },
 } as const satisfies Record<string, Palette>
