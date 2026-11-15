@@ -195,6 +195,27 @@ const isOnOff = (v: string): v is 'on' | 'off' => v === 'on' || v === 'off'
 const toolLabel = (tool: string) =>
   (tool.startsWith('mcp__') ? tool.split('__').pop() ?? tool : tool).toUpperCase().slice(0, 28)
 
+/** What the working line leads with, by what the turn is doing. A mode not listed gets no lead. */
+const WORKING_LEADS: Record<string, string> = {
+  requesting: 'UPLINK',
+  thinking: 'REASONING',
+  'tool-input': 'OPERATING',
+  'tool-use': 'OPERATING',
+  responding: 'COMPOSING',
+}
+
+/**
+ * The working line's word: the lead for the turn's mode, then the app's own
+ * words. The desktop says `Working` when it has nothing to say about the
+ * step, so the lead stands alone there.
+ */
+function workingWord(mode: string, word: string): string {
+  const lead = WORKING_LEADS[mode]
+  if (lead === undefined) return word
+  const said = word.trim()
+  return said === '' || said === 'Working' ? lead : `${lead}  ·  ${said}`
+}
+
 /** The model id as a unit designation: `claude-fable-5-2` reads `FABLE-5-2`. */
 const unitLabel = (id: string) => id.replace(/^claude-/, '').replace(/\[.*$/, '').toUpperCase()
 
@@ -741,10 +762,19 @@ export const register: Register = on => {
   // A Box that holds one of the app's own rows may not set a size, a place,
   // `overflow` or `display` (the desktop refuses the tree), so none here do.
 
-  // The working line: keep the app's words, and end them with the count.
+  // The working line: a lead that says what the turn is doing, the app's own
+  // words after it, and the count at the end. A `message` that overrides the
+  // word is the app's to say, so it passes untouched.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (e.surface !== 'desktop' || (await styledPreset($)) === undefined) return next(e)
-    return next({ ...e, props: { ...e.props, suffix: `  ·  ${await read($, ops)} tool calls` } })
+    return next({
+      ...e,
+      props: {
+        ...e.props,
+        word: workingWord(e.props.mode, e.props.word),
+        suffix: `  ·  ${await read($, ops)} tool calls`,
+      },
+    })
   })
 
   // Your prompts.

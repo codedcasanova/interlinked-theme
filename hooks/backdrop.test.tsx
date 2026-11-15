@@ -429,18 +429,32 @@ test('the question dialog keeps the app dialog under a heading', async ($, on) =
 
 test('the working line and the prompt hint keep the app words and gain a lead', async ($, on) => {
   world(on)
-  let seen: { suffix?: string; hint?: string } = {}
+  let seen: { word?: string; message?: string | null; suffix?: string; hint?: string } = {}
   on('ui.render', ($, e) => {
-    seen = e.props as { suffix?: string; hint?: string }
+    seen = e.props as typeof seen
     const { Text } = $.ui.resolve(e)
     return <Text>engine</Text>
   })
-
-  let ui = await $.ui.mount({
+  const spinner = (word: string, mode: string, message: string | null = null) => ({
     plugin: MOD, component: 'Spinner', requestId: 'main', surface: 'desktop',
-    props: { word: 'Reading notes.md', message: null, suffix: '…', mode: 'tool-use' },
-  } as never)
+    props: { word, message, suffix: '…', mode },
+  })
+
+  // the lead says what the turn is doing, and the app's own words follow it
+  let ui = await $.ui.mount(spinner('Reading notes.md', 'tool-use') as never)
+  expect(seen.word).toBe('OPERATING  ·  Reading notes.md')
   expect(seen.suffix).toContain('0 tool calls')
+  await ui.unmount()
+
+  // `Working` says nothing about the step, so the lead stands alone
+  ui = await $.ui.mount(spinner('Working', 'thinking') as never)
+  expect(seen.word).toBe('REASONING')
+  await ui.unmount()
+
+  // an override is the app's to say, and a mode this mod doesn't know gets no lead
+  ui = await $.ui.mount(spinner('Writing', 'some-new-mode', 'Compacting conversation') as never)
+  expect(seen.word).toBe('Writing')
+  expect(seen.message).toBe('Compacting conversation')
   await ui.unmount()
 
   ui = await $.ui.mount({
