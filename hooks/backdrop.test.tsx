@@ -40,7 +40,7 @@ function world(
   on: any,
   stored: Stored = {},
   theme: 'drawn' | 'undrawn' | 'refused' = 'undrawn',
-  limits: { now: Limit[] } = { now: LIMITS },
+  limits: { now: Limit[]; surfaces?: string[] } = { now: LIMITS },
 ) {
   const sets: SetCall[] = []
   const calls: string[] = []
@@ -84,6 +84,7 @@ function world(
     },
   }))
   on('session.model', () => ({ value: 'claude-fable-5-2' }))
+  on('session.surfaces', () => ({ value: limits.surfaces ?? ['desktop'] }))
   on('session.turns', () => ({ value: 3 }))
   on('session.cwd', () => ({ value: 'C:\\work\\night-shift' }))
   on('session.messages', () => ({
@@ -532,7 +533,7 @@ test('a limit running out books one notification for its reset, and alerts off t
   expect(resetAlerts([{ kind: 'seven_day', percentUsed: 95, resetsAt: new Date(NOW + 8 * 86_400_000).toISOString() }], NOW)).toEqual([])
   expect(resetAlerts(hot, 0)).toEqual([])
 
-  const limits = { now: LIMITS }
+  const limits: { now: Limit[]; surfaces?: string[] } = { now: LIMITS }
   const { notes, cancels, stored } = world(on, {}, 'undrawn', limits)
   on('session.measure', () => ({ changed: [] }))
   const run = (args: string) => $.command.run({ command: 'theme-mod', args } as never) as Promise<{ text: string }>
@@ -562,21 +563,36 @@ test('a limit running out books one notification for its reset, and alerts off t
   expect(notes.length).toBe(1)
   expect((await run('status')).text).toContain('ALERTS off')
 
-  // alerts on books it again; the window resets and the booking is let go
+  // alerts on books it again
   expect((await run('alerts on')).text).toContain('Alerts on')
   expect(notes.length).toBe(2)
+
+  // the window resets: by now the notification is on screen, so it is
+  // forgotten and never taken back
   limits.now = LIMITS
   await $.session.measure({} as never)
-  expect(cancels).toEqual(['limit-five_hour', 'limit-five_hour'])
+  expect(cancels).toEqual(['limit-five_hour'])
 
-  // turning the theme off takes back whatever is booked
+  // the next window runs low too, and is booked afresh
   limits.now = hot
   await $.session.measure({} as never)
   expect(notes.length).toBe(3)
+
+  // turning the theme off takes back whatever is booked
   await run('off')
-  expect(cancels.at(-1)).toBe('limit-five_hour')
+  expect(cancels).toEqual(['limit-five_hour', 'limit-five_hour'])
   await $.session.measure({} as never)
   expect(notes.length).toBe(3)
+
+  // a terminal raises a notification at once whatever time it is booked
+  // for, so a session a terminal draws books none
+  await run('neon-noir')
+  expect(notes.length).toBe(4)
+  await run('alerts off')
+  limits.surfaces = ['terminal', 'desktop']
+  await run('alerts on')
+  await $.session.measure({} as never)
+  expect(notes.length).toBe(4)
 })
 
 test('a card reads a few facts off the tool result, and nothing off one it does not know', async () => {

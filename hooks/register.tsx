@@ -216,22 +216,37 @@ let hasDrawnScene = false
 const booked = new Map<string, number>()
 
 /**
- * Keeps the app's booked notifications in step with the limits: one for the
- * reset of each limit that is running out, none for the rest. A reading with
- * nothing running out and nothing booked costs no call. Never throws.
+ * Whether a notification booked for later will be held until then. Only an
+ * app holds one: a terminal ignores the time and raises it at once, which
+ * would announce a reset that hasn't happened. So a session a terminal draws
+ * books nothing.
+ */
+async function holdsNotifications($: EngineInterface): Promise<boolean> {
+  const surfaces = await $.session.surfaces()
+  return !surfaces.includes('terminal') && surfaces.some(surface => surface === 'desktop' || surface === 'mobile')
+}
+
+/**
+ * Books a notification for the reset of each limit that is running out. A
+ * reading with nothing running out costs no call. Never throws.
+ *
+ * A limit that is no longer running out is only forgotten here, never taken
+ * back: its window has reset, so its notification is on screen or about to
+ * be, and a cancel would remove it. Taking back is for `alerts off` and `off`.
  */
 async function syncAlerts($: EngineInterface, limits: readonly Limit[]): Promise<void> {
   try {
     const mayBook = limits.some(limit => limit.percentUsed >= HOT_LIMIT)
-    if (!mayBook && booked.size === 0) return
+    if (!mayBook) {
+      booked.clear()
+      return
+    }
     const wanted =
-      mayBook && isPresetId(await read($, current)) && (await read($, isAlertsOn))
+      isPresetId(await read($, current)) && (await read($, isAlertsOn)) && (await holdsNotifications($))
         ? resetAlerts(limits, await $.clock.now())
         : []
     for (const key of [...booked.keys()]) {
-      if (wanted.some(alert => alert.key === key)) continue
-      booked.delete(key)
-      await $.ui.cancelNotify(key)
+      if (!wanted.some(alert => alert.key === key)) booked.delete(key)
     }
     if (wanted.length === 0) return
     // She signs it while she is in the console; otherwise the mod's own name heads it.

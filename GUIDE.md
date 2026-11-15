@@ -110,7 +110,7 @@ The plan limits and the chart are empty in a brand-new session. They fill in aft
 
 When your 5-hour or weekly limit passes 80 percent, Joi books one notification with the app for the moment that limit resets. It arrives as a normal desktop notification, with her name on it, and says the limit is open again. The app holds it, so it arrives even if the session has ended by then.
 
-There is one per limit, never a stream: a newer reading replaces the one already booked. `/theme-mod alerts off` and `/theme-mod off` both take it back. It follows your system's and the app's own notification settings.
+There is one per limit, never a stream: a newer reading replaces the one already booked. `/theme-mod alerts off` and `/theme-mod off` both take it back. It follows your system's and the app's own notification settings. Only a session in the app books one: a terminal can't hold a notification for later, so a terminal session books none.
 
 ## If something is off
 
