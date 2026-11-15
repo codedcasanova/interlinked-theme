@@ -33,13 +33,13 @@ declare module 'claude-code' {
       /** Readout tags and cards on the conversation's rows. */
       isStyled: boolean
       /** Tool calls seen this session. */
-      ops: number
+      toolCalls: number
       /** The session's count of tool calls when the turn running now, or the last one, began. */
       turnBase: number
-      /** Tool calls that came back as errors this session. */
-      faults: number
-      /** Whether a tool call faulted in the turn running now, or the last one. */
-      hadFault: boolean
+      /** Tool calls that failed this session. */
+      failures: number
+      /** Whether a tool call failed in the turn running now, or the last one. */
+      hadFailure: boolean
       /** Turns of the main conversation seen this session. */
       turns: number
       /** When the turn running now began, in epoch ms; 0 while no turn runs. */

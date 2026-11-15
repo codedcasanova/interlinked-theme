@@ -19,7 +19,7 @@ const SAMPLE: ConsoleData = {
   parts: [{ name: 'Messages', tokens: 578600 }, { name: 'System tools', tokens: 22500 }, { name: 'MCP tools', tokens: 18300 }],
   trend: [40, 46, 52, 58, 64],
   limits: [{ name: '5-HOUR', percent: 80, elapsed: 0.42, resets: '00:30', left: '2H 55M' }],
-  turns: [{ ops: 3, faults: 0 }, { ops: 12, faults: 2 }, { ops: 5, faults: 0 }],
+  turns: [{ calls: 3, failed: 0 }, { calls: 12, failed: 2 }, { calls: 5, failed: 0 }],
   hasCompanion: true,
   ground: '#080b12',
 }
@@ -132,7 +132,7 @@ const advance = (ui: unknown, ms: number) => (ui as { advance: (ms: number) => P
 type Loose = { tool: { call: (input: unknown) => Promise<unknown> } }
 
 const VITALS: Vitals = {
-  isWorking: false, turnOps: 0, hadFault: false, context: 20, limits: [], lastSeconds: 12, turns: 4, now: NOW,
+  isWorking: false, turnCalls: 0, hadFailure: false, context: 20, limits: [], lastSeconds: 12, turns: 4, now: NOW,
 }
 
 test('every scene fits the Svg bound, runs no script, and is deterministic', async () => {
@@ -200,7 +200,7 @@ test('nothing in the console leaves its cell, however long the readings', async 
       { name: '5-HOUR', percent: 100, elapsed: 0.05, resets: 'WED 23:59', left: '6D 23H' },
       { name: 'SPEND LIMIT', percent: 100, elapsed: 0.05, resets: 'WED 23:59', left: '6D 23H' },
     ],
-    turns: Array.from({ length: 24 }, () => ({ ops: 164, faults: 9 })),
+    turns: Array.from({ length: 24 }, () => ({ calls: 164, failed: 9 })),
   }
   const CELLS = [[106, 332], [352, 550], [570, 742]] as const
   const TEXT = /<text x="([\d.]+)" y="[\d.]+" font-size="([\d.]+)"[^>]*text-anchor="(start|end)"[^>]*?(?: textLength="(\d+)")?[^>]*>([^<]*)</g
@@ -305,8 +305,8 @@ test('a gauge has three colors no one could confuse, in every look', async () =>
 })
 
 test('the companion says the most pressing true thing', async () => {
-  expect(companionLine({ ...VITALS, isWorking: true, turnOps: 3 })).toBe('Working on it. 3 operations so far this turn.')
-  expect(companionLine({ ...VITALS, hadFault: true })).toContain('faulted')
+  expect(companionLine({ ...VITALS, isWorking: true, turnCalls: 3 })).toBe('Working on it. 3 tool calls so far this turn.')
+  expect(companionLine({ ...VITALS, hadFailure: true })).toContain('failed')
   expect(companionLine({ ...VITALS, context: 91 })).toContain('/compact')
   expect(
     companionLine({ ...VITALS, limits: [{ kind: 'five_hour', percentUsed: 88, resetsAt: new Date(NOW + 3_600_000).toISOString() }] }),
@@ -315,9 +315,9 @@ test('the companion says the most pressing true thing', async () => {
   expect(companionLine({ ...VITALS, context: 70 })).toContain('70 percent')
   expect(companionLine({ ...VITALS, turns: 0 })).toBe('Good evening. All systems nominal. What are we working on?')
   expect(companionLine(VITALS)).toBe('Good evening. 4 turns in, context at 20 percent. All quiet.')
-  // a context about to run out outranks a fault, and working outranks both
-  expect(companionLine({ ...VITALS, hadFault: true, context: 95 })).toContain('/compact')
-  expect(companionLine({ ...VITALS, hadFault: true, context: 95, isWorking: true })).toBe('Working on it.')
+  // a context about to run out outranks a failure, and working outranks both
+  expect(companionLine({ ...VITALS, hadFailure: true, context: 95 })).toContain('/compact')
+  expect(companionLine({ ...VITALS, hadFailure: true, context: 95, isWorking: true })).toBe('Working on it.')
 })
 
 test('the readout helpers format the way the console shows them', async () => {
@@ -470,7 +470,7 @@ test('while Claude works, the companion says so and the state reads ACTIVE', asy
 
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true } } as never)
   await advance(ui, TYPED)
-  expect(await ui.find({ type: 'Text', text: 'Working on it. 1 operation so far this turn.', ...LIVE })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Working on it. 1 tool call so far this turn.', ...LIVE })).toBeDefined()
   // the turn's timer runs beside the clock: four seconds in, by the row's own count
   expect(await ui.find({ type: 'Text', text: 'TURN 00:04   ', ...LIVE })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '● ACTIVE' })).toBeDefined()
@@ -514,7 +514,7 @@ test('the live row types her line, counts seconds, and holds still with motion o
   // the same thought with a new count is swapped whole, with no typing
   await ($ as unknown as Loose).tool.call({ tool: 'Bash', command: 'ls' } as never)
   await ui.redraw({ ...BAND.props, isWorking: true } as never)
-  expect(await ui.find({ type: 'Text', text: 'Working on it. 1 operation so far this turn.', ...LIVE })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Working on it. 1 tool call so far this turn.', ...LIVE })).toBeDefined()
   await ui.unmount()
 
   // motion off: the same words as plain text, the whole clock below, nothing ticking
@@ -532,7 +532,7 @@ test('the live row types her line, counts seconds, and holds still with motion o
   expect(turnLabel(-5)).toBe('00:00')
 })
 
-test('a faulted tool call is counted and the companion flags it', async ($, on) => {
+test('a failed tool call is counted and the companion flags it', async ($, on) => {
   world(on)
   on('tool.call', () => ({ result: 'boom', isError: true }))
   on('turn.start', (_, e) => ({ turnId: (e as { turnId: string }).turnId }))
@@ -544,7 +544,7 @@ test('a faulted tool call is counted and the companion flags it', async ($, on) 
 
   const ui = await $.ui.mount(BAND as never)
   await advance(ui, TYPED)
-  expect(await ui.find({ type: 'Text', text: /faulted/, ...LIVE })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /tool calls failed/, ...LIVE })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'FAILED ' })).toBeDefined()
   await ui.unmount()
 })
@@ -647,7 +647,7 @@ test('a reading mid-turn moves the text readouts and leaves the console drawing 
   // a tool call is one write
   writes.length = 0
   await ($ as unknown as Loose).tool.call({ tool: 'Bash', command: 'ls' } as never)
-  expect(writes).toEqual(['ops'])
+  expect(writes).toEqual(['toolCalls'])
   expect(await source()).toBe(before)
 
   // the turn ends: the console takes the new figures, and the stamp has them too

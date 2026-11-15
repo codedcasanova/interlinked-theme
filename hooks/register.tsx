@@ -65,14 +65,14 @@ const band = atom({ plugin: 'interlinked-theme', key: 'band' } as const, 'consol
 const glass = atom({ plugin: 'interlinked-theme', key: 'glass' } as const, 'frost' as Glass)
 const motion = atom({ plugin: 'interlinked-theme', key: 'motion' } as const, 'full' as Motion)
 const isStyled = atom({ plugin: 'interlinked-theme', key: 'isStyled' } as const, true)
-const ops = atom({ plugin: 'interlinked-theme', key: 'ops' } as const, 0)
+const toolCalls = atom({ plugin: 'interlinked-theme', key: 'toolCalls' } as const, 0)
 const turns = atom({ plugin: 'interlinked-theme', key: 'turns' } as const, 0)
 const lastSeconds = atom({ plugin: 'interlinked-theme', key: 'lastSeconds' } as const, 0)
 const contextPercent = atom({ plugin: 'interlinked-theme', key: 'contextPercent' } as const, 0)
 const model = atom({ plugin: 'interlinked-theme', key: 'model' } as const, '')
 const turnBase = atom({ plugin: 'interlinked-theme', key: 'turnBase' } as const, 0)
-const faults = atom({ plugin: 'interlinked-theme', key: 'faults' } as const, 0)
-const hadFault = atom({ plugin: 'interlinked-theme', key: 'hadFault' } as const, false)
+const failures = atom({ plugin: 'interlinked-theme', key: 'failures' } as const, 0)
+const hadFailure = atom({ plugin: 'interlinked-theme', key: 'hadFailure' } as const, false)
 const limitsJson = atom({ plugin: 'interlinked-theme', key: 'limitsJson' } as const, '[]')
 const startedAt = atom({ plugin: 'interlinked-theme', key: 'startedAt' } as const, 0)
 const minute = atom({ plugin: 'interlinked-theme', key: 'minute' } as const, 0)
@@ -91,7 +91,7 @@ type Detail = { tokens: number; window: number; parts: { name: string; tokens: n
 
 const HISTORY = 24
 /** Tool calls that failed in the turn running now. */
-let turnFaults = 0
+let turnFailures = 0
 /**
  * Names this load's live row to its surface module, so two sessions drawn in
  * one window each keep their own.
@@ -257,15 +257,15 @@ async function backfill($: EngineInterface): Promise<void> {
  * `seq` picks up from the session's count.
  */
 let seq = 0
-const opIndex = new Map<string, number>()
+const callNumbers = new Map<string, number>()
 /** How long each finished call ran, in ms, by call id, for the cards. Module state, as above. */
-const opMs = new Map<string, number>()
-const OPS_KEPT = 600
+const callTimes = new Map<string, number>()
+const CALLS_KEPT = 600
 
 /** Sets a call's entry and drops the oldest once the map is full. */
 function keep(map: Map<string, number>, id: string, value: number): void {
   map.set(id, value)
-  if (map.size > OPS_KEPT) {
+  if (map.size > CALLS_KEPT) {
     const oldest = map.keys().next().value
     if (oldest !== undefined) map.delete(oldest)
   }
@@ -757,7 +757,7 @@ export const register: Register = on => {
     }
 
     const now = await loadChoices($)
-    seq = await read($, ops)
+    seq = await read($, toolCalls)
     if ((await read($, turns)) === 0) {
       try {
         const done = await $.session.turns()
@@ -843,30 +843,30 @@ export const register: Register = on => {
 
   // ── The readouts' sources ────────────────────────────────────────────────
 
-  // Every tool call is one operation. The call itself passes through untouched.
+  // Every tool call is counted. The call itself passes through untouched.
   on('tool.call', async ($, e, next) => {
     seq += 1
     const n = seq
     // Read through plain shapes: the union of every connected tool is too deep to narrow.
     const callId = (e as { tool_use_id: string }).tool_use_id
-    keep(opIndex, callId, n)
+    keep(callNumbers, callId, n)
     // One write for the count, started now and finished while the tool runs,
     // so the call doesn't wait on a readout. Calls made side by side each
     // write their own number: the larger stands. A readout must never cost a
     // tool call, so a failed write is let go.
-    const counted = update($, ops, count => Math.max(count, n)).catch(() => undefined)
+    const counted = update($, toolCalls, count => Math.max(count, n)).catch(() => undefined)
     // Timed here and not with $.clock, which would add two dispatches to every call.
     const began = Date.now()
     const result = await next(e)
     // The row is drawn with its result only after this hook returns, so the
     // card finds the time here when it needs it.
-    keep(opMs, callId, Date.now() - began)
+    keep(callTimes, callId, Date.now() - began)
     await counted
     try {
       if ((result as { isError?: boolean }).isError === true) {
-        turnFaults += 1
-        await update($, faults, count => count + 1)
-        await fresh(await read($, hadFault), true, () => update($, hadFault, () => true))
+        turnFailures += 1
+        await update($, failures, count => count + 1)
+        await fresh(await read($, hadFailure), true, () => update($, hadFailure, () => true))
       }
     } catch (err) {
       quiet($, err)
@@ -879,11 +879,11 @@ export const register: Register = on => {
     if (e.agentId === undefined) {
       try {
         await update($, turns, n => n + 1)
-        turnFaults = 0
+        turnFailures = 0
         // the turn's own count of calls is the session's count less this
-        const base = await read($, ops)
+        const base = await read($, toolCalls)
         await fresh(await read($, turnBase), base, () => update($, turnBase, () => base))
-        await fresh(await read($, hadFault), false, () => update($, hadFault, () => false))
+        await fresh(await read($, hadFailure), false, () => update($, hadFailure, () => false))
         const began = await $.clock.now()
         await fresh(await read($, turnStartedAt), began, () => update($, turnStartedAt, () => began))
         const id = await $.session.model()
@@ -912,11 +912,11 @@ export const register: Register = on => {
     // The turn is over: the console's drawing may take the new figures.
     if (!isOff) await refreshReadouts($)
 
-    const calls = Math.max(0, (await read($, ops)) - (await read($, turnBase)))
+    const calls = Math.max(0, (await read($, toolCalls)) - (await read($, turnBase)))
     const context = await read($, contextPercent)
     try {
       // one more bar on the chart, one more point on the trend
-      const entry: Turn = { o: calls, f: turnFaults, c: context }
+      const entry: Turn = { o: calls, f: turnFailures, c: context }
       await update($, historyJson, text => JSON.stringify([...parseHistory(text), entry].slice(-HISTORY)))
     } catch (err) {
       quiet($, err)
@@ -950,7 +950,7 @@ export const register: Register = on => {
     const hasCompanion = choice === 'console' && (await read($, isCompanionOn))
     const isWorking = e.props.isWorking
 
-    const calls = await read($, ops)
+    const calls = await read($, toolCalls)
 
     let graphic
     let shown = context
@@ -976,7 +976,7 @@ export const register: Register = on => {
               reserve: detail.reserve,
               trend: history.filter(turn => turn.c >= 0).map(turn => turn.c),
               limits: held.limits.slice(0, 2).map(limit => limitRow(limit, step)),
-              turns: history.map(turn => ({ ops: turn.o, faults: turn.f })),
+              turns: history.map(turn => ({ calls: turn.o, failed: turn.f })),
               hasCompanion,
               ground,
             },
@@ -1018,8 +1018,8 @@ export const register: Register = on => {
     const line = hasCompanion
       ? companionLine({
           isWorking,
-          turnOps: Math.max(0, calls - (await read($, turnBase))),
-          hadFault: await read($, hadFault),
+          turnCalls: Math.max(0, calls - (await read($, turnBase))),
+          hadFailure: await read($, hadFailure),
           context,
           limits,
           lastSeconds: await read($, lastSeconds),
@@ -1064,7 +1064,7 @@ export const register: Register = on => {
             {pair('TOOL CALLS', String(calls))}
             {pair('TURNS', String(await read($, turns)))}
             {pair('LAST TURN', `${await read($, lastSeconds)}s`)}
-            {pair('FAILED', String(await read($, faults)))}
+            {pair('FAILED', String(await read($, failures)))}
             {pair('UPTIME', uptimeLabel(await read($, startedAt), clock))}
           </Text>
           {/* The state has a Text of its own, so a narrow band cuts the clock before it. */}
@@ -1107,7 +1107,7 @@ export const register: Register = on => {
       props: {
         ...e.props,
         word: workingWord(e.props.mode, e.props.word),
-        suffix: `  ·  ${await read($, ops)} tool calls`,
+        suffix: `  ·  ${await read($, toolCalls)} tool calls`,
       },
     })
   })
@@ -1145,7 +1145,7 @@ export const register: Register = on => {
     )
   })
 
-  // Tool calls: a card with its operation number, the tool, and its state.
+  // Tool calls: a card with the call's number in the session, the tool, and its state.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
     const id = await styledPreset($)
@@ -1158,9 +1158,9 @@ export const register: Register = on => {
         : e.props.isRunning
           ? [hud.secondary, 'RUNNING']
           : [hud.primary, 'DONE']
-    const n = opIndex.get(e.requestId)
+    const n = callNumbers.get(e.requestId)
     // Once the call is over: how long it ran, and what its result amounts to.
-    const ms = e.props.isRunning ? undefined : opMs.get(e.requestId)
+    const ms = e.props.isRunning ? undefined : callTimes.get(e.requestId)
     const facts = e.props.isRunning
       ? []
       : [
@@ -1374,7 +1374,7 @@ export const register: Register = on => {
           CX {pad4(await read($, contextPercent))}  context used, percent
         </Text>
         <Text mono size="caption" color={hud.primary}>
-          OP {pad4(await read($, ops))}  tool calls this session
+          OP {pad4(await read($, toolCalls))}  tool calls this session
         </Text>
         <Text mono size="caption" color={hud.primary}>
           TN {pad4(await read($, turns))}  turns this session
@@ -1383,7 +1383,7 @@ export const register: Register = on => {
           EL {pad4(await read($, lastSeconds))}  last turn, seconds
         </Text>
         <Text mono size="caption" color={hud.primary}>
-          FL {pad4(await read($, faults))}  tool calls that faulted
+          FL {pad4(await read($, failures))}  tool calls that failed
         </Text>
         <Text mono size="caption" color={hud.primary}>
           UP  session uptime, hours and minutes

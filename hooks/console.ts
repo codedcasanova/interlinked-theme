@@ -28,7 +28,7 @@ export type ConsoleData = {
   /** Plan limits, at most two. `elapsed` is the share of the window's time gone, 0 to 1. */
   limits: readonly { name: string; percent: number; elapsed: number | null; resets: string; left: string }[]
   /** Tool calls in each recent turn, oldest first. */
-  turns: readonly { ops: number; faults: number }[]
+  turns: readonly { calls: number; failed: number }[]
   hasCompanion: boolean
   /** The page color behind the console. */
   ground: string
@@ -414,17 +414,17 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
   if (turns.length === 0) {
     activity += note(AX, 64, 'NO TURNS RECORDED YET', { opacity: 0.6, max: AW })
   } else {
-    const peak = Math.max(1, ...turns.map(t => t.ops))
-    const sum = turns.reduce((n, t) => n + t.ops, 0)
-    const failed = turns.reduce((n, t) => n + t.faults, 0)
+    const peak = Math.max(1, ...turns.map(t => t.calls))
+    const sum = turns.reduce((n, t) => n + t.calls, 0)
+    const failed = turns.reduce((n, t) => n + t.failed, 0)
     let ok = ''
     let bad = ''
     let latest = ''
     turns.forEach((t, i) => {
       // right-aligned: the newest turn is the last bar
       const x = AX + AW - (turns.length - i) * 7
-      const h = t.ops === 0 ? 1.5 : Math.max(3, ((base - top) * t.ops) / peak)
-      const failH = t.faults > 0 ? Math.max(3, (h * t.faults) / Math.max(1, t.ops)) : 0
+      const h = t.calls === 0 ? 1.5 : Math.max(3, ((base - top) * t.calls) / peak)
+      const failH = t.failed > 0 ? Math.max(3, (h * t.failed) / Math.max(1, t.calls)) : 0
       const seg = `M${x} ${(base - h).toFixed(1)}h5v${(h - failH).toFixed(1)}h-5z`
       if (i === turns.length - 1) latest = seg
       else ok += seg

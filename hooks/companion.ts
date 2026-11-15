@@ -9,9 +9,9 @@ export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 export type Vitals = {
   isWorking: boolean
   /** Tool calls in the turn running now, or the last one. */
-  turnOps: number
-  /** Whether one of them came back as an error. */
-  hadFault: boolean
+  turnCalls: number
+  /** Whether one of them failed. */
+  hadFailure: boolean
   /** How full the context window is, 0 to 100. */
   context: number
   limits: readonly Limit[]
@@ -126,11 +126,11 @@ export function companionLine(v: Vitals): string {
   const context = Math.round(v.context)
 
   if (v.isWorking) {
-    return v.turnOps > 0
-      ? `Working on it. ${plural(v.turnOps, 'operation')} so far this turn.`
+    return v.turnCalls > 0
+      ? `Working on it. ${plural(v.turnCalls, 'tool call')} so far this turn.`
       : 'Working on it.'
   }
-  // What is about to run out comes before a fault: a command that exits
+  // What is about to run out comes before a failure: a command that exits
   // non-zero is routine, and it shouldn't hide a warning that matters more.
   if (context >= 85) {
     return `Context is at ${context} percent. Run /compact soon, before it gets trimmed for you.`
@@ -141,8 +141,8 @@ export function companionLine(v: Vitals): string {
     const when = Number.isNaN(resets) ? '' : ` It resets at ${hhmm(resets)}.`
     return `You have used ${Math.round(hot.percentUsed)} percent of your ${limitName(hot.kind)} limit.${when}`
   }
-  if (v.hadFault) {
-    return 'One of those operations faulted. Worth reading the error before a retry.'
+  if (v.hadFailure) {
+    return 'One of those tool calls failed. Worth reading the error before a retry.'
   }
   if (v.lastSeconds >= 300) {
     return `That one ran ${Math.round(v.lastSeconds / 60)} minutes. A good moment to stretch.`
