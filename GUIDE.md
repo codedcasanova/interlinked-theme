@@ -1,5 +1,20 @@
 # Interlinked: quick guide
 
+## Disclaimer: why Joi's portrait is a drawing
+
+The theme was first built with a real picture as Joi's portrait: a frame from a film, showing a real actress. That picture is **not** in this repository, on purpose.
+
+- **It is not ours to share.** A film frame belongs to the studio that made it. Publishing it here would be handing out someone else's copyrighted work.
+- **It shows a real person.** Putting an actress's face on a chatbot companion and distributing it uses her likeness without her say.
+
+So the public version draws its own figure instead: an original hologram, made from scratch for this theme.
+
+You can still give Joi any face you like on your own computer. Run `python tools/make-portrait.py your-picture.png` and reload the theme. Use a picture you have the right to use, and keep it out of anything you publish unless it is yours to share.
+
+Interlinked is an unofficial fan project. It is not affiliated with or endorsed by any film studio or by Anthropic.
+
+## How it works
+
 Everything is controlled by one command, `/theme-mod`, typed in the prompt box of a session in the Claude desktop app's Code tab. Your choices are saved and come back in every session.
 
 ## Commands
@@ -84,16 +99,3 @@ The plan limits and the chart are empty in a brand-new session. They fill in aft
 | Text is hard to read over the city | `/theme-mod glass frost`, or `/theme-mod glass solid` |
 | Nothing changed after installing | Start a new session in the Code tab. Type `/status` and check Claude Code is 2.1.325 or later |
 | You want it gone for now | `/theme-mod off` |
-
-## Disclaimer: why Joi's portrait is a drawing
-
-The theme was first built with a real picture as Joi's portrait: a frame from a film, showing a real actress. That picture is **not** in this repository, on purpose.
-
-- **It is not ours to share.** A film frame belongs to the studio that made it. Publishing it here would be handing out someone else's copyrighted work.
-- **It shows a real person.** Putting an actress's face on a chatbot companion and distributing it uses her likeness without her say.
-
-So the public version draws its own figure instead: an original hologram, made from scratch for this theme.
-
-You can still give Joi any face you like on your own computer. Run `python tools/make-portrait.py your-picture.png` and reload the theme. Use a picture you have the right to use, and keep it out of anything you publish unless it is yours to share.
-
-Interlinked is an unofficial fan project. It is not affiliated with or endorsed by any film studio or by Anthropic.
