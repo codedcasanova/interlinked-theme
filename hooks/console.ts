@@ -128,9 +128,10 @@ function hologram(p: Palette, ground: string, animated: boolean, mood: Mood, pic
   const fringe = 'M32.5 34C33 22 41 17 50 19C55 21 57.5 26 57.5 32C51 24 41 24 32.5 34Z'
 
   // The person's own portrait, when the mod carries one: projected as a
-  // framed image over the drawn figure, under the hologram's texture (fine
-  // scan lines), a band of light that sweeps down it, and a faint flicker.
-  // If the app won't draw an embedded picture, the figure beneath still shows.
+  // framed image in the drawn figure's place, under the hologram's texture
+  // (fine scan lines), a band of light that sweeps down it, and a faint
+  // flicker. The portrait covers its frame whole, so the figure is left out:
+  // drawn beneath it, she would be animated and filtered where nobody sees.
   const hasPortrait = picture !== ''
   const sheen = animated
     ? `<animate attributeName="y" values="-34;126" dur="9s" repeatCount="indefinite"/>`
@@ -162,20 +163,24 @@ function hologram(p: Palette, ground: string, animated: boolean, mood: Mood, pic
     defs:
       portraitDefs +
       `<linearGradient id="cone" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="${aura}" stop-opacity="0.9"/><stop offset="1" stop-color="${aura}" stop-opacity="0"/></linearGradient>` +
-      `<clipPath id="figure"><path d="${hair}"/>${face}${neck}${shoulders}</clipPath>` +
-      `<clipPath id="skin">${face}${neck}</clipPath>` +
-      `<pattern id="slice" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="1.8" fill="${tint}"/></pattern>`,
+      (hasPortrait
+        ? ''
+        : `<clipPath id="figure"><path d="${hair}"/>${face}${neck}${shoulders}</clipPath>` +
+          `<clipPath id="skin">${face}${neck}</clipPath>` +
+          `<pattern id="slice" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="1.8" fill="${tint}"/></pattern>`),
     body:
       `<path d="M36 124L4 6h82L54 124z" fill="url(#cone)" opacity="${glow}">${breathe}</path>` +
-      `<g>${glitch}<g filter="url(#lamp)">` +
-      `<g clip-path="url(#figure)"><rect x="4" y="4" width="84" height="120" fill="url(#slice)" opacity="0.95">${flicker}</rect>${sweep}</g>` +
-      `<g clip-path="url(#skin)"><rect x="30" y="20" width="30" height="46" fill="#ffffff" opacity="0.34"/></g>` +
-      `<path d="${fringe}" fill="${tint}" opacity="0.92"/>` +
-      `</g>` +
-      // eyes and mouth: small gaps in the light
-      `<path d="M38 39.5h5M47.5 39.5h5" stroke="${ground}" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>` +
-      `<path d="M42.5 47.5q2.5 1.8 5 0" fill="none" stroke="${ground}" stroke-width="1.3" stroke-linecap="round" opacity="0.8"/>` +
-      portrait +
+      `<g>${glitch}` +
+      (hasPortrait
+        ? portrait
+        : `<g filter="url(#lamp)">` +
+          `<g clip-path="url(#figure)"><rect x="4" y="4" width="84" height="120" fill="url(#slice)" opacity="0.95">${flicker}</rect>${sweep}</g>` +
+          `<g clip-path="url(#skin)"><rect x="30" y="20" width="30" height="46" fill="#ffffff" opacity="0.34"/></g>` +
+          `<path d="${fringe}" fill="${tint}" opacity="0.92"/>` +
+          `</g>` +
+          // eyes and mouth: small gaps in the light
+          `<path d="M38 39.5h5M47.5 39.5h5" stroke="${ground}" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>` +
+          `<path d="M42.5 47.5q2.5 1.8 5 0" fill="none" stroke="${ground}" stroke-width="1.3" stroke-linecap="round" opacity="0.8"/>`) +
       `</g>` +
       brackets +
       (beat

@@ -170,9 +170,10 @@ test('the console draws its readings in plain words', async () => {
   // the chart: the turns it covers and the failures in them
   expect(svg.includes('LAST 3 TURNS · AVG 7')).toBe(true)
   expect(svg.includes('2 FAILED')).toBe(true)
-  // the companion stands in her cell, and can step out
-  expect(svg.includes('id="figure"')).toBe(true)
-  expect(consoleSvg('neon-noir', { ...SAMPLE, hasCompanion: false }, false).includes('id="figure"')).toBe(false)
+  // the companion stands in her cell, and can step out. (The picture is
+  // named here: a copy of the mod that carries a portrait draws no figure.)
+  expect(consoleSvg('neon-noir', SAMPLE, false, '').includes('id="figure"')).toBe(true)
+  expect(consoleSvg('neon-noir', { ...SAMPLE, hasCompanion: false }, false, '').includes('id="figure"')).toBe(false)
   // an empty session says so and draws no chart
   const empty = consoleSvg('neon-noir', { ...SAMPLE, limits: [], turns: [], trend: [], parts: [] }, false)
   expect(empty.includes('SHOWS AFTER THE NEXT REPLY')).toBe(true)
@@ -218,6 +219,10 @@ test('the companion carries the mood of the fullest gauge', async () => {
   expect(picture.length > 59_000).toBe(true)
   const framed = draw(42, 93, true, picture)
   expect(framed.includes(BRACKETS)).toBe(false)
+  // the portrait stands in the figure's place: nothing is drawn or animated beneath it
+  expect(framed.includes('id="figure"')).toBe(false)
+  expect(framed.includes('url(#slice)')).toBe(false)
+  expect(framed.includes('id="frame"')).toBe(true)
   expect(framed.includes('rx="5" fill="none" stroke="#ff4d5e" stroke-width="2" opacity="1"')).toBe(true)
   expect(draw(42, 30, true, picture).includes('rx="5" fill="none" stroke="#ff3da6" stroke-width="1.2" opacity="0.75"')).toBe(true)
   for (const id of PRESET_IDS) {
