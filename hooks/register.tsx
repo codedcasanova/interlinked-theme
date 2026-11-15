@@ -50,11 +50,11 @@ const ALERTS = 'alerts'
 const STRIP = { width: 2304, height: 120 }
 const RAIL = { width: 2400, height: 26 }
 
-/** The two strengths of glass over the scene. `solid` sets no scene at all. */
-const GLASS_LEVELS: Record<Exclude<Glass, 'solid'>, { blur: number; opacity: number }> = {
-  clear: { blur: 3, opacity: 0.42 },
-  frost: { blur: 12, opacity: 0.68 },
-}
+/**
+ * The two strengths of glass over the scene, by their blur. How opaque each
+ * is depends on the look (`LOOKS[id].veil`). `solid` sets no scene at all.
+ */
+const GLASS_BLUR: Record<Exclude<Glass, 'solid'>, number> = { clear: 3, frost: 12 }
 
 const BANDS: readonly Band[] = ['console', 'rail', 'scene', 'off']
 const GLASSES: readonly Glass[] = ['clear', 'frost', 'solid']
@@ -348,7 +348,7 @@ async function apply($: EngineInterface, id: PresetId): Promise<{ isDrawn: boole
     ...(look.colors ? { colors: look.colors } : {}),
     ...(level === 'solid'
       ? {}
-      : { backdrop: { scene: id, glass: { ...GLASS_LEVELS[level], tint: look.surface } } }),
+      : { backdrop: { scene: id, glass: { blur: GLASS_BLUR[level], opacity: look.veil[level], tint: look.surface } } }),
   }
   try {
     const set = await $.theme.set(args)

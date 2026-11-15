@@ -28,7 +28,8 @@ export type Palette = {
   rainOpacity: number
   beams: string
   flame: string
-  sun?: { color: string; r: number; cy: number }
+  /** A blurred sun: its place as a share of the width and a height, its size and its strength. */
+  sun?: { color: string; r: number; cx: number; cy: number; opacity: number }
   /** Drifting dust motes when animated (presets without rain). */
   dust?: string
   /** Readout colors: phosphor text, a second hue, alerts, the grid, your tag. */
@@ -78,7 +79,9 @@ export const PRESETS = {
     rainOpacity: 0,
     beams: '#fff0c9',
     flame: '#ffd27a',
-    sun: { color: '#ffe0a3', r: 190, cy: 520 },
+    // Low and to the right, behind the towers: in the middle of the sky it sat
+    // under the conversation, where it washed out the words over it.
+    sun: { color: '#ffe0a3', r: 170, cx: 0.78, cy: 760, opacity: 0.7 },
     dust: '#ffe6b8',
     hud: { primary: '#ffc247', secondary: '#ff8a2a', alert: '#e5484d', grid: '#ffb86b', you: '#f6e3c3' },
     seed: 2049,
@@ -653,7 +656,8 @@ export function sceneSvg(id: PresetId, view: View = 'full', level: Motion | bool
     : { defs: '', body: '' }
 
   const sun = p.sun
-    ? `<circle cx="${W / 2}" cy="${p.sun.cy}" r="${p.sun.r}" fill="${p.sun.color}" opacity="0.85" filter="url(#soft)"/>`
+    ? // the strip shows a band of sky above the rooftops, so its sun rides higher
+      `<circle cx="${Math.round(W * p.sun.cx)}" cy="${isStrip ? 480 : p.sun.cy}" r="${p.sun.r}" fill="${p.sun.color}" opacity="${p.sun.opacity}" filter="url(#soft)"/>`
     : ''
 
   const svg =

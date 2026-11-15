@@ -40,7 +40,7 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 
 | Type this | What happens |
 | --- | --- |
-| `/theme-mod glass clear` | The city shows through the panels sharply |
+| `/theme-mod glass clear` | The city shows through the panels sharply, behind a veil just heavy enough to keep the words readable |
 | `/theme-mod glass frost` | The city is blurred behind the panels, so text is easier to read. The default |
 | `/theme-mod glass solid` | No city at all. You keep the colors. The lightest on your computer |
 | `/theme-mod motion full` | Rain, lights and the hologram move, and Joi's row ticks. The default |

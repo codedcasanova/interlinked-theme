@@ -296,6 +296,17 @@ test('/theme-mod switches looks, changes the glass, and turns off', async ($, on
 
   expect((await run('glass clear')).text).toBe('Glass: clear.')
   expect(sets.at(-1)?.backdrop?.scene).toBe('amber-dust')
+  // each look's glass is as heavy as its city needs for the words to stay readable
+  expect(sets.at(-1)?.backdrop?.glass).toEqual({ blur: 3, opacity: 0.75, tint: '#140c06' })
+  await run('glass frost')
+  expect(sets.at(-1)?.backdrop?.glass).toEqual({ blur: 12, opacity: 0.74, tint: '#140c06' })
+  await run('neon-noir')
+  expect(sets.at(-1)?.backdrop?.glass).toEqual({ blur: 12, opacity: 0.68, tint: '#080b12' })
+  await run('glass clear')
+  expect(sets.at(-1)?.backdrop?.glass).toEqual({ blur: 3, opacity: 0.6, tint: '#080b12' })
+  await run('amber-dust')
+  // Amber Dust's sun sits low and to the right, out from under the conversation
+  expect(sceneSvg('amber-dust', 'full', false).includes('<circle cx="1498" cy="760" r="170" fill="#ffe0a3" opacity="0.7"')).toBe(true)
 
   expect((await run('nope')).text).toContain('No look or option named')
   expect((await run('status')).text).toContain('LOOK   amber-dust')
