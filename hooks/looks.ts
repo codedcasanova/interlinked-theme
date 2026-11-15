@@ -80,11 +80,30 @@ const DEFINITIONS: Record<PresetId, Definition> = {
   },
 }
 
+/**
+ * How strongly each look's glass veils its city, as the opacity of the page
+ * color laid over it: `clear` under a light blur, `frost` under a heavy one.
+ *
+ * Set by measurement, not by eye. Each city was rendered with its flames at
+ * the height of a burn, the glass laid over it, and the look's text colors
+ * measured against every pixel of the reading area. These are the lightest
+ * veils under which primary text holds 4.5:1 everywhere and muted text holds
+ * it over at least 95% of the area. Amber Dust is a bright scene throughout,
+ * so its veils are heavier, and its clear and frost differ mostly in blur.
+ */
+const VEILS: Record<PresetId, { clear: number; frost: number }> = {
+  'neon-noir': { clear: 0.6, frost: 0.68 },
+  'amber-dust': { clear: 0.75, frost: 0.74 },
+  'acid-rain': { clear: 0.6, frost: 0.68 },
+}
+
 export type Look = {
   /** The palette, or undefined when makeColors refused the definition. */
   colors: ThemeColors | undefined
   /** The page color, which also tints the glass over the scene. */
   surface: string
+  /** The glass's opacity over this look's city, for each strength. */
+  veil: { clear: number; frost: number }
   /** The line that would stop Desktop painting this look, if there is one. */
   unpainted: string | undefined
 }
@@ -97,11 +116,12 @@ function build(id: PresetId): Look {
     return {
       colors: theme,
       surface,
+      veil: VEILS[id],
       unpainted: problems.find(line => line.startsWith("Desktop won't paint")),
     }
   } catch (err) {
     // A look without colors still has its scene, band and rows.
-    return { colors: undefined, surface, unpainted: err instanceof Error ? err.message : String(err) }
+    return { colors: undefined, surface, veil: VEILS[id], unpainted: err instanceof Error ? err.message : String(err) }
   }
 }
 

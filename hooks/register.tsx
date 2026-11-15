@@ -13,13 +13,21 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs } from 'claude-code'
 
-import type { Band, Current, Glass } from '../types'
-import { DEFAULT_NAME, cleanName, clockLabel, companionLine, hhmm, parseLimits, uptimeLabel } from './companion'
+import type { Band, Current, Glass, Motion } from '../types'
+import {
+  DEFAULT_NAME, HOT_LIMIT, cleanName, clockLabel, companionLine, dateLabel, hhmm, parseLimits, resetAlerts, uptimeLabel,
+} from './companion'
 import type { Limit } from './companion'
 import { CONSOLE, consoleSvg } from './console'
+import type { LiveRowProps } from './live-row'
+import {
+  HISTORY, MIN_VERSION, isOlder, limitRow, once, parseHeld, parseHistory, unitLabel, workingWord,
+} from './readings'
+import type { Detail, Held, Turn } from './readings'
 import { LOOKS } from './looks'
-import { PRESETS, PRESET_IDS, isPresetId, railSvg, sceneSvg } from './scenes'
+import { PRESETS, PRESET_IDS, isPresetId, pad4, railSvg, sceneSvg } from './scenes'
 import type { PresetId } from './scenes'
+import { durationLabel, groupTally, toolFacts, toolLabel } from './tools'
 
 const COMMAND = 'theme-mod'
 const DECK = 'noir-scene'
@@ -28,11 +36,14 @@ const DEFAULT: PresetId = 'neon-noir'
 /** `$.store` keys, kept across sessions. */
 const CHOICE = 'preset'
 const BAND = 'band'
+/** Motion as older versions stored it: on or off. Still written, so an older copy reads it. */
 const RAIN = 'rain'
+const MOTION = 'motion'
 const STYLE = 'style'
 const GLASS = 'glass'
 const COMPANION = 'companion'
 const COMPANION_ON = 'companion.on'
+const ALERTS = 'alerts'
 
 /**
  * Explicit Svg sizes in CSS px. With `isInteractive` (which the animation
@@ -43,110 +54,64 @@ const COMPANION_ON = 'companion.on'
 const STRIP = { width: 2304, height: 120 }
 const RAIL = { width: 2400, height: 26 }
 
-/** The two strengths of glass over the scene. `solid` sets no scene at all. */
-const GLASS_LEVELS: Record<Exclude<Glass, 'solid'>, { blur: number; opacity: number }> = {
-  clear: { blur: 3, opacity: 0.42 },
-  frost: { blur: 12, opacity: 0.68 },
-}
+/**
+ * The two strengths of glass over the scene, by their blur. How opaque each
+ * is depends on the look (`LOOKS[id].veil`). `solid` sets no scene at all.
+ */
+const GLASS_BLUR: Record<Exclude<Glass, 'solid'>, number> = { clear: 3, frost: 12 }
 
 const BANDS: readonly Band[] = ['console', 'rail', 'scene', 'off']
 const GLASSES: readonly Glass[] = ['clear', 'frost', 'solid']
+const MOTIONS: readonly Motion[] = ['full', 'calm', 'off']
 
 const current = atom({ plugin: 'interlinked-theme', key: 'current' } as const, DEFAULT as Current)
 const band = atom({ plugin: 'interlinked-theme', key: 'band' } as const, 'console' as Band)
 const glass = atom({ plugin: 'interlinked-theme', key: 'glass' } as const, 'frost' as Glass)
-const isAnimated = atom({ plugin: 'interlinked-theme', key: 'isAnimated' } as const, true)
+const motion = atom({ plugin: 'interlinked-theme', key: 'motion' } as const, 'full' as Motion)
 const isStyled = atom({ plugin: 'interlinked-theme', key: 'isStyled' } as const, true)
-const isBackdropDrawn = atom({ plugin: 'interlinked-theme', key: 'isBackdropDrawn' } as const, false)
-const ops = atom({ plugin: 'interlinked-theme', key: 'ops' } as const, 0)
+const toolCalls = atom({ plugin: 'interlinked-theme', key: 'toolCalls' } as const, 0)
 const turns = atom({ plugin: 'interlinked-theme', key: 'turns' } as const, 0)
 const lastSeconds = atom({ plugin: 'interlinked-theme', key: 'lastSeconds' } as const, 0)
 const contextPercent = atom({ plugin: 'interlinked-theme', key: 'contextPercent' } as const, 0)
 const model = atom({ plugin: 'interlinked-theme', key: 'model' } as const, '')
-const turnOps = atom({ plugin: 'interlinked-theme', key: 'turnOps' } as const, 0)
-const faults = atom({ plugin: 'interlinked-theme', key: 'faults' } as const, 0)
-const hadFault = atom({ plugin: 'interlinked-theme', key: 'hadFault' } as const, false)
+const turnBase = atom({ plugin: 'interlinked-theme', key: 'turnBase' } as const, 0)
+const failures = atom({ plugin: 'interlinked-theme', key: 'failures' } as const, 0)
+const hadFailure = atom({ plugin: 'interlinked-theme', key: 'hadFailure' } as const, false)
 const limitsJson = atom({ plugin: 'interlinked-theme', key: 'limitsJson' } as const, '[]')
 const startedAt = atom({ plugin: 'interlinked-theme', key: 'startedAt' } as const, 0)
 const minute = atom({ plugin: 'interlinked-theme', key: 'minute' } as const, 0)
 const folder = atom({ plugin: 'interlinked-theme', key: 'folder' } as const, '')
 const companion = atom({ plugin: 'interlinked-theme', key: 'companion' } as const, DEFAULT_NAME)
 const isCompanionOn = atom({ plugin: 'interlinked-theme', key: 'isCompanionOn' } as const, true)
+const isAlertsOn = atom({ plugin: 'interlinked-theme', key: 'isAlertsOn' } as const, true)
+const turnStartedAt = atom({ plugin: 'interlinked-theme', key: 'turnStartedAt' } as const, 0)
 const historyJson = atom({ plugin: 'interlinked-theme', key: 'historyJson' } as const, '[]')
-const contextJson = atom({ plugin: 'interlinked-theme', key: 'contextJson' } as const, '{}')
+const consoleJson = atom({ plugin: 'interlinked-theme', key: 'consoleJson' } as const, '{}')
 
-/** One finished turn: its tool calls, how many failed, and the context after it (-1 when unknown). */
-type Turn = { o: number; f: number; c: number }
-/** What fills the context window, as the console draws it. */
-type Detail = { tokens: number; window: number; parts: { name: string; tokens: number }[]; reserve: number }
-
-const HISTORY = 24
 /** Tool calls that failed in the turn running now. */
-let turnFaults = 0
-
-function parseHistory(text: string): Turn[] {
-  try {
-    const list: unknown = JSON.parse(text)
-    if (!Array.isArray(list)) return []
-    return list.filter(
-      (row): row is Turn =>
-        typeof row === 'object' && row !== null &&
-        typeof (row as Turn).o === 'number' && typeof (row as Turn).f === 'number' && typeof (row as Turn).c === 'number',
-    )
-  } catch {
-    return []
-  }
-}
-
-function parseDetail(text: string): Detail {
-  const empty: Detail = { tokens: 0, window: 0, parts: [], reserve: 0 }
-  try {
-    const d = JSON.parse(text) as Partial<Detail> | null
-    if (typeof d !== 'object' || d === null) return empty
-    return {
-      tokens: typeof d.tokens === 'number' ? d.tokens : 0,
-      window: typeof d.window === 'number' ? d.window : 0,
-      parts: Array.isArray(d.parts)
-        ? d.parts.filter(part => typeof part?.name === 'string' && typeof part?.tokens === 'number')
-        : [],
-      reserve: typeof d.reserve === 'number' ? d.reserve : 0,
-    }
-  } catch {
-    return empty
-  }
-}
-
-/** `2D 11H`, `2H 55M`, `45M`: time left, short enough for a readout. */
-function spanLabel(ms: number): string {
-  const minutes = Math.max(0, Math.round(ms / 60_000))
-  const days = Math.floor(minutes / 1440)
-  const hours = Math.floor((minutes % 1440) / 60)
-  if (days > 0) return `${days}D ${hours}H`
-  if (hours > 0) return `${hours}H ${minutes % 60}M`
-  return `${minutes}M`
-}
+let turnFailures = 0
+/**
+ * Names this load's live row to its surface module, so two sessions drawn in
+ * one window each keep their own.
+ */
+const LIVE_ROW = Math.random().toString(36).slice(2)
 
 /**
- * One plan limit as the console draws it: how much is used, how much of the
- * window's time is gone, and when it resets.
+ * Notes a failure the mod carries on from, in the debug log (`claude
+ * --debug`). Each of these used to be swallowed whole, and a readout that
+ * quietly stops is hard to find.
  */
-function limitRow(limit: Limit, now: number) {
-  const span = limit.kind === 'five_hour' ? 5 * 3_600_000 : limit.kind === 'seven_day' ? 7 * 86_400_000 : 0
-  const resetsAt = limit.resetsAt ? Date.parse(limit.resetsAt) : NaN
-  const isKnown = !Number.isNaN(resetsAt) && now > 0
-  const left = isKnown ? Math.max(0, resetsAt - now) : 0
-  const day = isKnown && left > 86_400_000 ? `${clockLabel(resetsAt).slice(7, 10)} ` : ''
-  return {
-    name:
-      limit.kind === 'five_hour' ? '5-HOUR'
-      : limit.kind === 'seven_day' ? 'WEEKLY'
-      : limit.kind.replace(/_/g, ' ').toUpperCase().slice(0, 12),
-    percent: limit.percentUsed,
-    elapsed: isKnown && span > 0 ? Math.max(0, Math.min(1, 1 - left / span)) : null,
-    resets: isKnown ? `${day}${hhmm(resetsAt)}` : '',
-    left: isKnown ? spanLabel(left) : '',
+function quiet($: EngineInterface, err: unknown): void {
+  try {
+    $.ui.log(`carried on after: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300), { to: 'debug' })
+  } catch {
+    // Nowhere to say so.
   }
 }
+
+const limitsOf = once(parseLimits)
+const historyOf = once(parseHistory)
+const heldOf = once(parseHeld)
 
 /**
  * Fills the turn history from the transcript the first time, so the chart
@@ -180,23 +145,100 @@ async function backfill($: EngineInterface): Promise<void> {
  * `seq` picks up from the session's count.
  */
 let seq = 0
-const opIndex = new Map<string, number>()
-/** Set once an app asks this mod to draw its scene, which proves it draws backdrops. */
-let hasDrawnScene = false
+const callNumbers = new Map<string, number>()
+/** How long each finished call ran, in ms, by call id, for the cards. Module state, as above. */
+const callTimes = new Map<string, number>()
+const CALLS_KEPT = 600
 
-/** A readout value: four digits, as the old screens wrote them. */
-const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).padStart(4, '0')
+/** Sets a call's entry and drops the oldest once the map is full. */
+function keep(map: Map<string, number>, id: string, value: number): void {
+  map.set(id, value)
+  if (map.size > CALLS_KEPT) {
+    const oldest = map.keys().next().value
+    if (oldest !== undefined) map.delete(oldest)
+  }
+}
+/**
+ * Whether an app draws this mod's scene: it said so when the theme was set,
+ * or it asked for the scene to be drawn. Module state: session.start sets the
+ * theme again after a reload.
+ */
+let isSceneDrawn = false
+
+/**
+ * The reset notifications booked this load, by key, with the moment each is
+ * booked for. Module state: after a reload the next reading books them again
+ * under the same keys, which replaces what the app holds.
+ */
+const booked = new Map<string, number>()
+
+/**
+ * Whether a notification booked for later will be held until then. Only an
+ * app holds one: a terminal ignores the time and raises it at once, which
+ * would announce a reset that hasn't happened. So a session a terminal draws
+ * books nothing.
+ */
+async function holdsNotifications($: EngineInterface): Promise<boolean> {
+  const surfaces = await $.session.surfaces()
+  return !surfaces.includes('terminal') && surfaces.some(surface => surface === 'desktop' || surface === 'mobile')
+}
+
+/**
+ * Books a notification for the reset of each limit that is running out. A
+ * reading with nothing running out costs no call. Never throws.
+ *
+ * A limit that is no longer running out is only forgotten here, never taken
+ * back: its window has reset, so its notification is on screen or about to
+ * be, and a cancel would remove it. Taking back is for `alerts off` and `off`.
+ */
+async function syncAlerts($: EngineInterface, limits: readonly Limit[]): Promise<void> {
+  try {
+    const mayBook = limits.some(limit => limit.percentUsed >= HOT_LIMIT)
+    if (!mayBook) {
+      booked.clear()
+      return
+    }
+    const wanted =
+      isPresetId(await read($, current)) && (await read($, isAlertsOn)) && (await holdsNotifications($))
+        ? resetAlerts(limits, await $.clock.now())
+        : []
+    for (const key of [...booked.keys()]) {
+      if (!wanted.some(alert => alert.key === key)) booked.delete(key)
+    }
+    if (wanted.length === 0) return
+    // She signs it while she is in the console; otherwise the mod's own name heads it.
+    const title = (await read($, isCompanionOn)) ? await read($, companion) : undefined
+    for (const alert of wanted) {
+      if (booked.get(alert.key) === alert.at) continue
+      const sent = await $.ui.notify(alert.text, { ...(title ? { title } : {}), key: alert.key, at: alert.at })
+      if (sent.isSent) booked.set(alert.key, alert.at)
+    }
+  } catch (err) {
+    quiet($, err)
+    // A notification that cannot be booked costs nothing else.
+  }
+}
+
+/**
+ * Takes back every reset notification: the ones booked this load, and the
+ * ones an earlier load would have booked for the limits as they stand.
+ */
+async function cancelAlerts($: EngineInterface): Promise<void> {
+  try {
+    const limits = parseLimits(await read($, limitsJson))
+    const keys = new Set([...booked.keys(), ...resetAlerts(limits, await $.clock.now()).map(alert => alert.key)])
+    booked.clear()
+    for (const key of keys) await $.ui.cancelNotify(key)
+  } catch (err) {
+    quiet($, err)
+    // Nothing held, or no app to ask.
+  }
+}
 
 const isBand = (v: unknown): v is Band => BANDS.includes(v as Band)
 const isGlass = (v: unknown): v is Glass => GLASSES.includes(v as Glass)
+const isMotion = (v: unknown): v is Motion => MOTIONS.includes(v as Motion)
 const isOnOff = (v: string): v is 'on' | 'off' => v === 'on' || v === 'off'
-
-/** A tool's name for a card: an MCP tool's last part, in caps. */
-const toolLabel = (tool: string) =>
-  (tool.startsWith('mcp__') ? tool.split('__').pop() ?? tool : tool).toUpperCase().slice(0, 28)
-
-/** The model id as a unit designation: `claude-fable-5-2` reads `FABLE-5-2`. */
-const unitLabel = (id: string) => id.replace(/^claude-/, '').replace(/\[.*$/, '').toUpperCase()
 
 /** The preset the conversation styling follows, or undefined when it should stay out. */
 async function styledPreset($: EngineInterface): Promise<PresetId | undefined> {
@@ -217,14 +259,14 @@ async function apply($: EngineInterface, id: PresetId): Promise<{ isDrawn: boole
     ...(look.colors ? { colors: look.colors } : {}),
     ...(level === 'solid'
       ? {}
-      : { backdrop: { scene: id, glass: { ...GLASS_LEVELS[level], tint: look.surface } } }),
+      : { backdrop: { scene: id, glass: { blur: GLASS_BLUR[level], opacity: look.veil[level], tint: look.surface } } }),
   }
   try {
     const set = await $.theme.set(args)
-    await update($, isBackdropDrawn, () => set.isDrawn && level !== 'solid')
+    isSceneDrawn = set.isDrawn && level !== 'solid'
     return set.isDrawn ? { isDrawn: true } : { isDrawn: false, reason: set.reason }
   } catch (err) {
-    await update($, isBackdropDrawn, () => false)
+    isSceneDrawn = false
     return { isDrawn: false, reason: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -241,23 +283,90 @@ async function loadChoices($: EngineInterface): Promise<Current> {
   await update($, band, () => toBand(savedBand))
   const savedGlass = await $.store.get(GLASS)
   await update($, glass, () => (isGlass(savedGlass) ? savedGlass : 'frost'))
+  // the level, or what an earlier version stored: motion on or off
+  const savedMotion = await $.store.get(MOTION)
   const rain = await $.store.get(RAIN)
-  await update($, isAnimated, () => rain !== false)
+  const level: Motion = isMotion(savedMotion) ? savedMotion : rain === false ? 'off' : 'full'
+  await update($, motion, () => level)
   const style = await $.store.get(STYLE)
   await update($, isStyled, () => style !== false)
   const name = await $.store.get(COMPANION)
   await update($, companion, () => (typeof name === 'string' ? cleanName(name) : DEFAULT_NAME))
   const companionOn = await $.store.get(COMPANION_ON)
   await update($, isCompanionOn, () => companionOn !== false)
+  const alerts = await $.store.get(ALERTS)
+  await update($, isAlertsOn, () => alerts !== false)
 
   const saved = await $.store.get(CHOICE)
   const now: Current =
     saved === 'off' ? 'off' : typeof saved === 'string' && isPresetId(saved) ? saved : DEFAULT
   await update($, current, () => now)
+  isOff = now === 'off'
   return now
 }
 
-/** Refreshes the readouts that come from the session itself. Never throws. */
+/** Whether the theme is off. Module state, set wherever the look is loaded or chosen. */
+let isOff = false
+
+/**
+ * Runs `write` only when `value` differs from what is `stored`. Every write
+ * draws its readers again, the band among them, so an unchanged one is
+ * skipped. The read and the write stay at the call, where the engine can see
+ * which value they name: it refuses a state call made through a parameter.
+ */
+async function fresh<T>(stored: T, value: T, write: () => Promise<unknown>): Promise<void> {
+  if (stored !== value) await write()
+}
+
+/**
+ * Takes in a reading as the session reports one mid-turn: how full the
+ * context is and the plan limits. Only the text readouts follow it; the
+ * console's drawing holds what it showed until the turn ends, because a new
+ * source restarts its animation. Never throws.
+ */
+async function takeReading($: EngineInterface, percent: unknown, limits: unknown): Promise<void> {
+  try {
+    if (typeof percent === 'number') {
+      const filled = Math.round(percent)
+      await fresh(await read($, contextPercent), filled, () => update($, contextPercent, () => filled))
+    }
+    if (Array.isArray(limits)) {
+      const text = JSON.stringify(parseLimits(JSON.stringify(limits)).map(limit => ({
+        kind: limit.kind, percentUsed: limit.percentUsed, resetsAt: limit.resetsAt,
+      })))
+      await fresh(await read($, limitsJson), text, () => update($, limitsJson, () => text))
+      await syncAlerts($, parseLimits(text))
+    }
+  } catch (err) {
+    quiet($, err)
+    // The readouts keep their last values.
+  }
+}
+
+/** Reads what the session keeps for its whole length: the model and the working folder. Never throws. */
+async function readSession($: EngineInterface): Promise<void> {
+  try {
+    const id = await $.session.model()
+    await fresh(await read($, model), id, () => update($, model, () => id))
+  } catch (err) {
+    quiet($, err)
+    // Keep the last one.
+  }
+  try {
+    const cwd = await $.session.cwd()
+    const last = cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''
+    await fresh(await read($, folder), last, () => update($, folder, () => last))
+  } catch (err) {
+    quiet($, err)
+    // Same.
+  }
+}
+
+/**
+ * Takes a full reading, with what fills the context, and lets the console's
+ * drawing show it. Called where the drawing may change: when the session
+ * starts, when a turn ends, and when a look is chosen. Never throws.
+ */
 async function refreshReadouts($: EngineInterface): Promise<void> {
   try {
     // `summary` estimates the breakdown locally: no request is sent for it.
@@ -278,38 +387,28 @@ async function refreshReadouts($: EngineInterface): Promise<void> {
         ? breakdown.categories.filter(row => row.kind === 'buffer').reduce((sum, row) => sum + row.tokens, 0)
         : 0,
     }
-    const detailText = JSON.stringify(detail)
-    await update($, contextJson, () => detailText)
     const filled = typeof percent === 'number' ? percent : breakdown ? breakdown.percentage : undefined
-    if (typeof filled === 'number') await update($, contextPercent, () => Math.round(filled))
-    const limits = JSON.stringify(
-      usage.rateLimits.map(limit => ({ kind: limit.kind, percentUsed: limit.percentUsed, resetsAt: limit.resetsAt })),
-    )
-    await update($, limitsJson, () => limits)
+    await takeReading($, filled, usage.rateLimits)
     const began = usage.startedAt
-    if (typeof began === 'number') await update($, startedAt, () => began)
-  } catch {
-    // No usage on this build or surface: the readout keeps its last value.
-  }
-  try {
-    const id = await $.session.model()
-    await update($, model, () => id)
-  } catch {
-    // Same: keep the last one.
-  }
-  try {
-    const cwd = await $.session.cwd()
-    const last = cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''
-    await update($, folder, () => last)
-  } catch {
-    // Same.
+    if (typeof began === 'number') await fresh(await read($, startedAt), began, () => update($, startedAt, () => began))
+    const held: Held = {
+      context: await read($, contextPercent),
+      limits: parseLimits(await read($, limitsJson)),
+      detail,
+    }
+    const text = JSON.stringify(held)
+    await fresh(await read($, consoleJson), text, () => update($, consoleJson, () => text))
+  } catch (err) {
+    quiet($, err)
+    // No usage on this build or surface: the readouts keep their last values.
   }
 }
 
 /** Moves the band's clock to the current minute, when it has changed. */
 async function tick($: EngineInterface): Promise<void> {
+  if (isOff) return
   const now = Math.floor((await $.clock.now()) / 60_000)
-  if ((await read($, minute)) !== now) await update($, minute, () => now)
+  await fresh(await read($, minute), now, () => update($, minute, () => now))
 }
 
 async function setCompanion($: EngineInterface, isOn: boolean): Promise<string> {
@@ -326,10 +425,29 @@ async function nameCompanion($: EngineInterface, raw: string): Promise<string> {
   return `The companion answers to ${name} now.`
 }
 
+async function setAlerts($: EngineInterface, isOn: boolean): Promise<string> {
+  await $.store.set(ALERTS, isOn)
+  await update($, isAlertsOn, () => isOn)
+  if (!isOn) {
+    await cancelAlerts($)
+    return 'Alerts off: no notifications are booked.'
+  }
+  await syncAlerts($, parseLimits(await read($, limitsJson)))
+  return 'Alerts on: when a limit passes 80 percent, a notification is booked for the moment it resets.'
+}
+
 async function choosePreset($: EngineInterface, id: PresetId): Promise<string> {
   await $.store.set(CHOICE, id)
   await update($, current, () => id as Current)
+  const wasOff = isOff
+  isOff = false
   const set = await apply($, id)
+  // Coming back from `off`: the readouts stood still meanwhile, so take a
+  // fresh reading, which also books again what turning off took back.
+  if (wasOff) {
+    await tick($).catch(() => undefined)
+    await refreshReadouts($)
+  }
   $.ui.toast(`${PRESETS[id].label.toUpperCase()} // ONLINE`)
   return set.isDrawn
     ? `Look set: ${PRESETS[id].label}.`
@@ -352,9 +470,12 @@ async function chooseBand($: EngineInterface, choice: Band): Promise<string> {
   return choice === 'off' ? 'Band hidden.' : `Band: ${choice}.`
 }
 
-async function setRain($: EngineInterface, isOn: boolean): Promise<string> {
-  await $.store.set(RAIN, isOn)
-  await update($, isAnimated, () => isOn)
+async function setMotion($: EngineInterface, level: Motion): Promise<string> {
+  await $.store.set(MOTION, level)
+  await $.store.set(RAIN, level !== 'off')
+  await update($, motion, () => level)
+  if (level === 'calm') return 'Motion calm: the rain, the dust and the searchlights hold still; the rest moves.'
+  const isOn = level === 'full'
   return isOn ? 'Motion on.' : 'Motion off: the scene holds still.'
 }
 
@@ -367,7 +488,9 @@ async function setStyle($: EngineInterface, isOn: boolean): Promise<string> {
 async function turnOff($: EngineInterface): Promise<string> {
   await $.store.set(CHOICE, 'off')
   await update($, current, () => 'off' as Current)
-  await update($, isBackdropDrawn, () => false)
+  isOff = true
+  isSceneDrawn = false
+  await cancelAlerts($)
   await $.theme.clear()
   return 'Theme off: back to the app’s own look.'
 }
@@ -383,23 +506,29 @@ const usage = () =>
     `/${COMMAND} band console|rail|scene|off  what sits above the prompt`,
     `/${COMMAND} companion on|off          the hologram in the console`,
     `/${COMMAND} companion name <name>     what the hologram answers to`,
-    `/${COMMAND} rain on|off               motion in the scene`,
+    `/${COMMAND} motion full|calm|off      how much moves (rain on|off still works)`,
     `/${COMMAND} style on|off              tags and cards in the conversation`,
+    `/${COMMAND} alerts on|off             a notification when a limit that ran low resets`,
     `/${COMMAND} deck                      open the control deck`,
     `/${COMMAND} off                       back to the app's own look`,
   ].join('\n')
 
 async function statusText($: EngineInterface): Promise<string> {
   const now = await read($, current)
-  const drawn = (await read($, isBackdropDrawn)) || hasDrawnScene
+  const drawn = isSceneDrawn
   return [
     `LOOK   ${now}${isPresetId(now) ? ` (${PRESETS[now].label})` : ''}`,
     `SCENE  ${drawn ? 'drawn behind the conversation' : 'not drawn by this app'}`,
     `GLASS  ${await read($, glass)}`,
     `BAND   ${await read($, band)}`,
     `HOLO   ${(await read($, isCompanionOn)) ? (await read($, companion)) : 'off'}`,
-    `RAIN   ${(await read($, isAnimated)) ? 'on' : 'off'}`,
+    `MOTION ${await read($, motion)}`,
     `STYLE  ${(await read($, isStyled)) ? 'on' : 'off'}`,
+    `ALERTS ${(await read($, isAlertsOn)) ? 'on' : 'off'}${
+      (await holdsNotifications($).catch(() => false))
+        ? ''
+        : '  (this session can\'t hold a notification for later, so none is booked)'
+    }`,
     '',
     usage(),
   ].join('\n')
@@ -432,14 +561,25 @@ async function runCommand($: EngineInterface, args: string) {
     return { text: `Usage: /${COMMAND} companion on|off, or /${COMMAND} companion name <name>` }
   }
 
+  if (verb === 'motion') {
+    if (!isMotion(option)) return { text: `Usage: /${COMMAND} motion full|calm|off` }
+    return { text: await setMotion($, option) }
+  }
+
+  // the older name for the same switch
   if (verb === 'rain') {
-    if (!isOnOff(option)) return { text: `Usage: /${COMMAND} rain on|off` }
-    return { text: await setRain($, option === 'on') }
+    if (!isOnOff(option)) return { text: `Usage: /${COMMAND} motion full|calm|off` }
+    return { text: await setMotion($, option === 'on' ? 'full' : 'off') }
   }
 
   if (verb === 'style') {
     if (!isOnOff(option)) return { text: `Usage: /${COMMAND} style on|off` }
     return { text: await setStyle($, option === 'on') }
+  }
+
+  if (verb === 'alerts') {
+    if (!isOnOff(option)) return { text: `Usage: /${COMMAND} alerts on|off` }
+    return { text: await setAlerts($, option === 'on') }
   }
 
   if (verb === 'deck' || verb === 'panel') {
@@ -466,28 +606,42 @@ export const register: Register = on => {
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'Interlinked look: presets, glass, command console, companion, motion, row styling, control deck',
-        argumentHint: `[${PRESET_IDS.join('|')}|glass|band|companion|rain|style|deck|off]`,
+        description: 'Interlinked look: presets, glass, command console, companion, motion, row styling, alerts, control deck',
+        argumentHint: `[${PRESET_IDS.join('|')}|glass|band|companion|motion|style|alerts|deck|off]`,
       })
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // The name is taken on this build: the look still loads.
     }
 
+    // Say so once on a build older than the one this was made on.
+    try {
+      const { version } = await $.session.version()
+      if (isOlder(version, MIN_VERSION)) {
+        $.ui.toast(`Interlinked was made for Claude Code ${MIN_VERSION} or later. This is ${version}: some of it may not draw.`)
+      }
+    } catch (err) {
+      quiet($, err)
+    }
+
     const now = await loadChoices($)
-    seq = await read($, ops)
+    seq = await read($, toolCalls)
     if ((await read($, turns)) === 0) {
       try {
         const done = await $.session.turns()
         await update($, turns, () => done)
-      } catch {
+      } catch (err) {
+        quiet($, err)
         // Count from here.
       }
     }
+    await readSession($)
     await refreshReadouts($)
 
     try {
       await backfill($)
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // No transcript here: the chart fills as turns finish.
     }
 
@@ -495,7 +649,8 @@ export const register: Register = on => {
     try {
       await tick($)
       $.clock.every(30_000, () => tick($).catch(() => undefined))
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // No clock here: the console draws without one.
     }
 
@@ -512,15 +667,39 @@ export const register: Register = on => {
   // /clear, /resume and /branch reset $.state to its defaults without firing
   // session.start again, so load the saved choices once more.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
-    await loadChoices($)
-    await refreshReadouts($)
+    try {
+      await loadChoices($)
+      await readSession($)
+      await refreshReadouts($)
+    } catch (err) {
+      // a settings store that can't be read must not stop the session starting
+      quiet($, err)
+    }
     return next(e)
   })
 
-  // Plan limits and the context count arrive with Claude's replies: take a
-  // fresh reading whenever the session measures them.
+  // Plan limits and the context count arrive with Claude's replies. The event
+  // carries both, so a reading costs no call; a build that sends neither is
+  // asked for the plain figures. Mid-turn only the text readouts follow it.
   on('session.measure', async ($, e, next) => {
-    await refreshReadouts($)
+    if (isOff) return next(e)
+    try {
+      if ((await read($, turnStartedAt)) === 0) {
+        // no turn is running (a /compact, a resume): the console may show it
+        await refreshReadouts($)
+      } else {
+        const reading = e as { context?: { percent?: number }; rateLimits?: unknown }
+        if (reading.context === undefined || reading.rateLimits === undefined) {
+          const usage = await $.session.usage()
+          await takeReading($, usage.context.percent, usage.rateLimits)
+        } else {
+          await takeReading($, reading.context.percent, reading.rateLimits)
+        }
+      }
+    } catch (err) {
+      quiet($, err)
+      // The readouts keep their last values.
+    }
     return next(e)
   })
 
@@ -532,30 +711,33 @@ export const register: Register = on => {
 
   // ── The readouts' sources ────────────────────────────────────────────────
 
-  // Every tool call is one operation. The call itself passes through untouched.
+  // Every tool call is counted. The call itself passes through untouched.
   on('tool.call', async ($, e, next) => {
     seq += 1
     const n = seq
     // Read through plain shapes: the union of every connected tool is too deep to narrow.
-    opIndex.set((e as { tool_use_id: string }).tool_use_id, n)
-    if (opIndex.size > 600) {
-      const oldest = opIndex.keys().next().value
-      if (oldest !== undefined) opIndex.delete(oldest)
-    }
-    try {
-      await update($, ops, () => n)
-      await update($, turnOps, count => count + 1)
-    } catch {
-      // A readout must never cost a tool call.
-    }
+    const callId = (e as { tool_use_id: string }).tool_use_id
+    keep(callNumbers, callId, n)
+    // One write for the count, started now and finished while the tool runs,
+    // so the call doesn't wait on a readout. Calls made side by side each
+    // write their own number: the larger stands. A readout must never cost a
+    // tool call, so a failed write is let go.
+    const counted = update($, toolCalls, count => Math.max(count, n)).catch(() => undefined)
+    // Timed here and not with $.clock, which would add two dispatches to every call.
+    const began = Date.now()
     const result = await next(e)
+    // The row is drawn with its result only after this hook returns, so the
+    // card finds the time here when it needs it.
+    keep(callTimes, callId, Date.now() - began)
+    await counted
     try {
       if ((result as { isError?: boolean }).isError === true) {
-        turnFaults += 1
-        await update($, faults, count => count + 1)
-        await update($, hadFault, () => true)
+        turnFailures += 1
+        await update($, failures, count => count + 1)
+        await fresh(await read($, hadFailure), true, () => update($, hadFailure, () => true))
       }
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // Same.
     }
     return result
@@ -565,12 +747,17 @@ export const register: Register = on => {
     if (e.agentId === undefined) {
       try {
         await update($, turns, n => n + 1)
-        turnFaults = 0
-        await update($, turnOps, () => 0)
-        await update($, hadFault, () => false)
+        turnFailures = 0
+        // the turn's own count of calls is the session's count less this
+        const base = await read($, toolCalls)
+        await fresh(await read($, turnBase), base, () => update($, turnBase, () => base))
+        await fresh(await read($, hadFailure), false, () => update($, hadFailure, () => false))
+        const began = await $.clock.now()
+        await fresh(await read($, turnStartedAt), began, () => update($, turnStartedAt, () => began))
         const id = await $.session.model()
-        await update($, model, () => id)
-      } catch {
+        await fresh(await read($, model), id, () => update($, model, () => id))
+      } catch (err) {
+        quiet($, err)
         // Keep the last values.
       }
     }
@@ -584,19 +771,23 @@ export const register: Register = on => {
 
     const seconds = Math.round(e.durationMs / 1000)
     try {
-      await update($, lastSeconds, () => seconds)
-    } catch {
+      await fresh(await read($, turnStartedAt), 0, () => update($, turnStartedAt, () => 0))
+      await fresh(await read($, lastSeconds), seconds, () => update($, lastSeconds, () => seconds))
+    } catch (err) {
+      quiet($, err)
       // Keep the last value.
     }
-    await refreshReadouts($)
+    // The turn is over: the console's drawing may take the new figures.
+    if (!isOff) await refreshReadouts($)
 
-    const calls = await read($, turnOps)
+    const calls = Math.max(0, (await read($, toolCalls)) - (await read($, turnBase)))
     const context = await read($, contextPercent)
     try {
       // one more bar on the chart, one more point on the trend
-      const entry: Turn = { o: calls, f: turnFaults, c: context }
+      const entry: Turn = { o: calls, f: turnFailures, c: context }
       await update($, historyJson, text => JSON.stringify([...parseHistory(text), entry].slice(-HISTORY)))
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // Keep the history as it was.
     }
 
@@ -613,23 +804,31 @@ export const register: Register = on => {
     const choice = await read($, band)
     if (!isPresetId(now) || choice === 'off') return next(e)
 
-    const anim = await read($, isAnimated)
+    const level = await read($, motion)
+    const anim = level !== 'off'
     const p = PRESETS[now]
     const hud = p.hud
     const ground = LOOKS[now].surface
-    const { Box, Svg, Text } = $.ui.resolve(e)
+    const { Box, Client, Svg, Text } = $.ui.resolve(e)
 
     const context = await read($, contextPercent)
-    const limits = parseLimits(await read($, limitsJson))
+    const limits = limitsOf(await read($, limitsJson))
     const clock = (await read($, minute)) * 60_000
     const name = await read($, companion)
     const hasCompanion = choice === 'console' && (await read($, isCompanionOn))
     const isWorking = e.props.isWorking
 
+    const calls = await read($, toolCalls)
+
     let graphic
+    let shown = context
     if (choice === 'console') {
-      const detail = parseDetail(await read($, contextJson))
-      const history = parseHistory(await read($, historyJson))
+      // The drawing shows the readings as they stood when the last turn
+      // ended: a new source would restart its animation mid-turn.
+      const held = heldOf(await read($, consoleJson))
+      const detail = held.detail
+      shown = held.context
+      const history = historyOf(await read($, historyJson))
       // The limits' clocks move in five-minute steps, so the drawing is
       // rebuilt every five minutes and not every one.
       const step = Math.floor(clock / 300_000) * 300_000
@@ -638,20 +837,20 @@ export const register: Register = on => {
           source={consoleSvg(
             now,
             {
-              context,
+              context: shown,
               tokens: detail.tokens,
               window: detail.window,
               parts: detail.parts,
               reserve: detail.reserve,
               trend: history.filter(turn => turn.c >= 0).map(turn => turn.c),
-              limits: limits.slice(0, 2).map(limit => limitRow(limit, step)),
-              turns: history.map(turn => ({ ops: turn.o, faults: turn.f })),
+              limits: held.limits.slice(0, 2).map(limit => limitRow(limit, step)),
+              turns: history.map(turn => ({ calls: turn.o, failed: turn.f })),
               hasCompanion,
               ground,
             },
             anim,
           )}
-          alt={`Command console: context window ${context} percent used`}
+          alt={`Command console: context window ${shown} percent used`}
           width={anim ? CONSOLE.frameWidth : CONSOLE.minWidth}
           height={CONSOLE.height}
           isInteractive={anim || undefined}
@@ -660,7 +859,7 @@ export const register: Register = on => {
     } else if (choice === 'scene') {
       graphic = (
         <Svg
-          source={sceneSvg(now, 'strip', anim)}
+          source={sceneSvg(now, 'strip', level)}
           alt={`${p.label}: rooftops under a measurement grid`}
           width={STRIP.width}
           height={STRIP.height}
@@ -684,40 +883,65 @@ export const register: Register = on => {
       <Text color={hud.primary} weight="bold">{value}{'   '}</Text>,
     ]
 
+    const line = hasCompanion
+      ? companionLine({
+          isWorking,
+          turnCalls: Math.max(0, calls - (await read($, turnBase))),
+          hadFailure: await read($, hadFailure),
+          context,
+          limits,
+          lastSeconds: await read($, lastSeconds),
+          turns: await read($, turns),
+          now: clock,
+        })
+      : ''
+    // With motion on, the companion's row is live: her line is typed out
+    // beside a clock with seconds and the running turn's timer, all drawn by
+    // a surface module on its own clock. Held still, it is plain text.
+    let live: LiveRowProps | undefined
+    if (hasCompanion && anim) {
+      live = {
+        id: LIVE_ROW,
+        name,
+        line,
+        now: await $.clock.now().catch(() => 0),
+        turnStartedAt: isWorking ? await read($, turnStartedAt) : 0,
+        nameColor: hud.you,
+        clockColor: hud.primary,
+        turnColor: hud.secondary,
+      }
+    }
+
     return (
       <Box width="100%" flexDirection="column" overflow="hidden" backgroundColor={ground}>
         <Box width="100%" overflow="hidden">{graphic}</Box>
-        {hasCompanion ? (
+        {live !== undefined ? (
+          <Box width="100%" paddingX={1}>
+            <Client key="live" module="./live-row.tsx" props={live} width="100%" />
+          </Box>
+        ) : hasCompanion ? (
           <Box width="100%" paddingX={1}>
             <Text size="caption" wrap="truncate">
               <Text mono color={hud.you} weight="bold">◆ {name} ▸ </Text>
-              <Text>
-                {companionLine({
-                  isWorking,
-                  turnOps: await read($, turnOps),
-                  hadFault: await read($, hadFault),
-                  context,
-                  limits,
-                  lastSeconds: await read($, lastSeconds),
-                  turns: await read($, turns),
-                  now: clock,
-                })}
-              </Text>
+              <Text>{line}</Text>
             </Text>
           </Box>
         ) : null}
         <Box width="100%" flexDirection="row" justifyContent="space-between" paddingX={1}>
           <Text mono size="caption" wrap="truncate">
-            {pair('TOOL CALLS', String(await read($, ops)))}
+            {pair('TOOL CALLS', String(calls))}
             {pair('TURNS', String(await read($, turns)))}
             {pair('LAST TURN', `${await read($, lastSeconds)}s`)}
-            {pair('FAILED', String(await read($, faults)))}
+            {pair('FAILED', String(await read($, failures)))}
             {pair('UPTIME', uptimeLabel(await read($, startedAt), clock))}
           </Text>
           {/* The state has a Text of its own, so a narrow band cuts the clock before it. */}
           <Box flexDirection="row" gap={2}>
             {clock > 0 ? (
-              <Text mono size="caption" wrap="truncate" color={hud.primary}>{clockLabel(clock)}</Text>
+              <Text mono size="caption" wrap="truncate" color={hud.primary}>
+                {/* the live row above carries the time, to the second */}
+                {live !== undefined ? dateLabel(clock) : clockLabel(clock)}
+              </Text>
             ) : null}
             <Text mono size="caption" weight="bold" color={isWorking ? hud.secondary : hud.primary}>
               {isWorking ? '● ACTIVE' : '○ STANDBY'}
@@ -741,10 +965,19 @@ export const register: Register = on => {
   // A Box that holds one of the app's own rows may not set a size, a place,
   // `overflow` or `display` (the desktop refuses the tree), so none here do.
 
-  // The working line: keep the app's words, and end them with the count.
+  // The working line: a lead that says what the turn is doing, the app's own
+  // words after it, and the count at the end. A `message` that overrides the
+  // word is the app's to say, so it passes untouched.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (e.surface !== 'desktop' || (await styledPreset($)) === undefined) return next(e)
-    return next({ ...e, props: { ...e.props, suffix: `  ·  ${await read($, ops)} tool calls` } })
+    return next({
+      ...e,
+      props: {
+        ...e.props,
+        word: workingWord(e.props.mode, e.props.word),
+        suffix: `  ·  ${await read($, toolCalls)} tool calls`,
+      },
+    })
   })
 
   // Your prompts.
@@ -780,7 +1013,7 @@ export const register: Register = on => {
     )
   })
 
-  // Tool calls: a card with its operation number, the tool, and its state.
+  // Tool calls: a card with the call's number in the session, the tool, and its state.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
     const id = await styledPreset($)
@@ -793,7 +1026,15 @@ export const register: Register = on => {
         : e.props.isRunning
           ? [hud.secondary, 'RUNNING']
           : [hud.primary, 'DONE']
-    const n = opIndex.get(e.requestId)
+    const n = callNumbers.get(e.requestId)
+    // Once the call is over: how long it ran, and what its result amounts to.
+    const ms = e.props.isRunning ? undefined : callTimes.get(e.requestId)
+    const facts = e.props.isRunning
+      ? []
+      : [
+          ...(ms === undefined ? [] : [durationLabel(ms)]),
+          ...(e.props.isErrored || e.props.isInterrupted ? [] : toolFacts(e.props.tool, e.props.output)),
+        ]
     const { Box, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>
@@ -801,6 +1042,37 @@ export const register: Register = on => {
           <Text color={edge} weight="bold">◤ {toolLabel(e.props.tool)}</Text>
           {n === undefined ? null : <Text color={hud.primary} dimColor>{'  #'}{pad4(n)}</Text>}
           <Text color={edge}>{'  '}{state}</Text>
+          {facts.length === 0 ? null : (
+            <Text color={hud.primary} dimColor>{'  ·  '}{facts.join('  ·  ')}</Text>
+          )}
+        </Text>
+        {await next(e)}
+      </Box>
+    )
+  })
+
+  // A run of calls the app folds into one line: the same card, with the
+  // count by tool. Unfolded, each call is a row with a card of its own.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    if (e.surface !== 'desktop' || e.props.isExpanded || e.props.calls.length === 0) return next(e)
+    const id = await styledPreset($)
+    if (!id) return next(e)
+    const hud = PRESETS[id].hud
+    const calls = e.props.calls
+    const failed = calls.filter(call => call.isErrored).length
+    const isRunning = e.props.isActive || calls.some(call => call.isRunning)
+    const [edge, state] = failed > 0
+      ? [hud.alert, `${failed} FAILED`]
+      : isRunning
+        ? [hud.secondary, 'RUNNING']
+        : [hud.primary, 'DONE']
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>
+        <Text mono size="caption" wrap="truncate">
+          <Text color={edge} weight="bold">◤ {calls.length} OPERATION{calls.length === 1 ? '' : 'S'}</Text>
+          <Text color={edge}>{'  '}{state}</Text>
+          <Text color={hud.primary} dimColor>{'  ·  '}{groupTally(calls.map(call => call.tool))}</Text>
         </Text>
         {await next(e)}
       </Box>
@@ -858,11 +1130,13 @@ export const register: Register = on => {
       )
     }
 
-    const anim = await read($, isAnimated)
+    const moving = await read($, motion)
+    const anim = moving !== 'off'
     const styled = await read($, isStyled)
     const level = await read($, glass)
     const choice = await read($, band)
     const hasCompanion = await read($, isCompanionOn)
+    const hasAlerts = await read($, isAlertsOn)
     const name = await read($, companion)
     const p = PRESETS[now]
     const hud = p.hud
@@ -880,7 +1154,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         <Box overflow="hidden" backgroundColor={p.skyTop}>
           <Svg
-            source={sceneSvg(now, 'deck', anim)}
+            source={sceneSvg(now, 'deck', moving)}
             alt={`${p.label}: the city under an analysis grid, with a stepping crosshair`}
             width={width}
             height={height}
@@ -928,14 +1202,20 @@ export const register: Register = on => {
           ))}
         </Box>
 
+        {heading('MOTION  ·  how much moves')}
+        <Box flexDirection="row" flexWrap="wrap" gap={1}>
+          {MOTIONS.map(m => (
+            <Button
+              key={`motion-${m}`}
+              label={m}
+              variant={m === moving ? 'primary' : 'secondary'}
+              onPress={() => setMotion($, m)}
+            />
+          ))}
+        </Box>
+
         {heading('SYSTEMS')}
         <Box flexDirection="row" flexWrap="wrap" gap={1}>
-          <Button
-            key="rain"
-            label={anim ? 'Motion: on' : 'Motion: off'}
-            variant={anim ? 'primary' : 'secondary'}
-            onPress={() => setRain($, !anim)}
-          />
           <Button
             key="style"
             label={styled ? 'Row styling: on' : 'Row styling: off'}
@@ -948,6 +1228,12 @@ export const register: Register = on => {
             variant={hasCompanion ? 'primary' : 'secondary'}
             onPress={() => setCompanion($, !hasCompanion)}
           />
+          <Button
+            key="alerts"
+            label={hasAlerts ? 'Alerts: on' : 'Alerts: off'}
+            variant={hasAlerts ? 'primary' : 'secondary'}
+            onPress={() => setAlerts($, !hasAlerts)}
+          />
           <Button key="off" label="Theme off" variant="secondary" onPress={() => turnOff($)} />
         </Box>
 
@@ -956,7 +1242,7 @@ export const register: Register = on => {
           CX {pad4(await read($, contextPercent))}  context used, percent
         </Text>
         <Text mono size="caption" color={hud.primary}>
-          OP {pad4(await read($, ops))}  tool calls this session
+          OP {pad4(await read($, toolCalls))}  tool calls this session
         </Text>
         <Text mono size="caption" color={hud.primary}>
           TN {pad4(await read($, turns))}  turns this session
@@ -965,7 +1251,7 @@ export const register: Register = on => {
           EL {pad4(await read($, lastSeconds))}  last turn, seconds
         </Text>
         <Text mono size="caption" color={hud.primary}>
-          FL {pad4(await read($, faults))}  tool calls that faulted
+          FL {pad4(await read($, failures))}  tool calls that failed
         </Text>
         <Text mono size="caption" color={hud.primary}>
           UP  session uptime, hours and minutes
@@ -985,13 +1271,14 @@ export const register: Register = on => {
     if (e.props.plugin !== $.plugin.name || !isPresetId(id)) return next(e)
 
     // An app asked for the scene, so it draws backdrops: /theme-mod status says so.
-    hasDrawnScene = true
+    isSceneDrawn = true
 
-    const anim = await read($, isAnimated)
+    const level = await read($, motion)
+    const anim = level !== 'off'
     const { Svg } = $.ui.resolve(e)
     return (
       <Svg
-        source={sceneSvg(id, 'full', anim)}
+        source={sceneSvg(id, 'full', level)}
         alt={`${PRESETS[id].label}: a city at night`}
         isInteractive={anim || undefined}
       />

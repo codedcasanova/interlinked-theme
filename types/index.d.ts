@@ -15,27 +15,35 @@ export type Band = 'console' | 'rail' | 'scene' | 'off'
  */
 export type Glass = 'clear' | 'frost' | 'solid'
 
+/**
+ * How much moves: `full` is everything; `calm` holds the rain, the dust and
+ * the searchlights still, the three that move across the whole window, and
+ * keeps the signs, the craft, the airship and the flames; `off` holds
+ * everything still.
+ */
+export type Motion = 'full' | 'calm' | 'off'
+
 declare module 'claude-code' {
   interface PluginState {
     'interlinked-theme': {
       current: Current
       band: Band
       glass: Glass
-      isAnimated: boolean
+      motion: Motion
       /** Readout tags and cards on the conversation's rows. */
       isStyled: boolean
-      /** Whether an attached app said it draws the look. */
-      isBackdropDrawn: boolean
       /** Tool calls seen this session. */
-      ops: number
-      /** Tool calls in the turn running now, or the last one. */
-      turnOps: number
-      /** Tool calls that came back as errors this session. */
-      faults: number
-      /** Whether a tool call faulted in the turn running now, or the last one. */
-      hadFault: boolean
+      toolCalls: number
+      /** The session's count of tool calls when the turn running now, or the last one, began. */
+      turnBase: number
+      /** Tool calls that failed this session. */
+      failures: number
+      /** Whether a tool call failed in the turn running now, or the last one. */
+      hadFailure: boolean
       /** Turns of the main conversation seen this session. */
       turns: number
+      /** When the turn running now began, in epoch ms; 0 while no turn runs. */
+      turnStartedAt: number
       /** How long the last turn ran, in seconds. */
       lastSeconds: number
       /** How full the context window is, 0 to 100. */
@@ -53,10 +61,15 @@ declare module 'claude-code' {
       /** The hologram companion's name. */
       companion: string
       isCompanionOn: boolean
+      /** Whether the companion books a notification for the reset of a limit that is running out. */
+      isAlertsOn: boolean
       /** The last turns as JSON: a list of { o: tool calls, f: failed, c: context after }. */
       historyJson: string
-      /** What fills the context as JSON: { tokens, window, parts, reserve }. */
-      contextJson: string
+      /**
+       * What the console's drawing shows, as JSON: { context, limits, detail }.
+       * Held from one turn's end to the next, so the drawing isn't rebuilt mid-turn.
+       */
+      consoleJson: string
     }
   }
 }

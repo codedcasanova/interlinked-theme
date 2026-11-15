@@ -28,11 +28,17 @@ export type Palette = {
   rainOpacity: number
   beams: string
   flame: string
-  sun?: { color: string; r: number; cy: number }
+  /** A blurred sun: its place as a share of the width and a height, its size and its strength. */
+  sun?: { color: string; r: number; cx: number; cy: number; opacity: number }
   /** Drifting dust motes when animated (presets without rain). */
   dust?: string
-  /** Readout colors: phosphor text, a second hue, alerts, the grid, your tag. */
-  hud: { primary: string; secondary: string; alert: string; grid: string; you: string }
+  /**
+   * Readout colors: phosphor text, a second hue, alerts, the grid, your tag.
+   * `calm` and `warn` are what a gauge shows while there is room and while it
+   * is filling up; with `alert` they are three hues no one could confuse, in
+   * every look.
+   */
+  hud: { primary: string; secondary: string; alert: string; grid: string; you: string; calm: string; warn: string }
   seed: number
 }
 
@@ -56,7 +62,8 @@ export const PRESETS = {
     rainOpacity: 0.22,
     beams: '#ffd3a1',
     flame: '#ff9a2e',
-    hud: { primary: '#ffb000', secondary: '#2de2e6', alert: '#ff4d5e', grid: '#3aa0ff', you: '#ff3da6' },
+    // cyan, amber, red
+    hud: { primary: '#ffb000', secondary: '#2de2e6', alert: '#ff4d5e', grid: '#3aa0ff', you: '#ff3da6', calm: '#2de2e6', warn: '#ffb000' },
     seed: 2019,
   },
   'amber-dust': {
@@ -78,9 +85,12 @@ export const PRESETS = {
     rainOpacity: 0,
     beams: '#fff0c9',
     flame: '#ffd27a',
-    sun: { color: '#ffe0a3', r: 190, cy: 520 },
+    // Low and to the right, behind the towers: in the middle of the sky it sat
+    // under the conversation, where it washed out the words over it.
+    sun: { color: '#ffe0a3', r: 170, cx: 0.78, cy: 760, opacity: 0.7 },
     dust: '#ffe6b8',
-    hud: { primary: '#ffc247', secondary: '#ff8a2a', alert: '#e5484d', grid: '#ffb86b', you: '#f6e3c3' },
+    // The look is orange throughout, so a gauge with room is the look's green: olive, amber, red.
+    hud: { primary: '#ffc247', secondary: '#ff8a2a', alert: '#e5484d', grid: '#ffb86b', you: '#f6e3c3', calm: '#9bbf4a', warn: '#ffc247' },
     seed: 2049,
   },
   'acid-rain': {
@@ -102,7 +112,8 @@ export const PRESETS = {
     rainOpacity: 0.3,
     beams: '#9dfff0',
     flame: '#c6ff6b',
-    hud: { primary: '#7dffcf', secondary: '#35e0a1', alert: '#ff5d6c', grid: '#35e0a1', you: '#e6d04a' },
+    // The readouts are mint, so a gauge filling up turns orange: green, orange, red.
+    hud: { primary: '#7dffcf', secondary: '#35e0a1', alert: '#ff5d6c', grid: '#35e0a1', you: '#e6d04a', calm: '#35e0a1', warn: '#ff9d2e' },
     seed: 1982,
   },
 } as const satisfies Record<string, Palette>
@@ -130,7 +141,9 @@ const VIEWS: Record<View, { width: number; box: (w: number) => string; fit: stri
   deck: { width: 1920, box: w => `0 0 ${w} ${H}`, fit: 'xMidYMid slice' },
 }
 
-const FONT = "font-family=\"Bahnschrift,'DIN Alternate','Segoe UI',sans-serif\" font-weight=\"600\""
+/** The readouts' typeface, as an SVG attribute: a narrow engineering face, with what stands in for it elsewhere. */
+export const FONT_FAMILY = "font-family=\"Bahnschrift,'DIN Alternate','Segoe UI',sans-serif\""
+const FONT = `${FONT_FAMILY} font-weight="600"`
 
 function mulberry32(seed: number) {
   let a = seed >>> 0
@@ -147,10 +160,26 @@ type Rand = ReturnType<typeof mulberry32>
 
 const between = (r: Rand, lo: number, hi: number) => Math.round(lo + r() * (hi - lo))
 const pick = <T,>(r: Rand, list: readonly T[]): T => list[Math.floor(r() * list.length)]!
-const pad4 = (n: number) => String(Math.max(0, Math.round(n))).padStart(4, '0')
+/** A readout value: four digits, as the old screens wrote them. */
+export const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).padStart(4, '0')
 
-/** What one build shares: the palette, the PRNG, the width and the view. */
-type Ctx = { p: Palette; r: Rand; W: number; view: View; animated: boolean }
+/**
+ * How much of a scene moves. `calm` holds the weather and the searchlights
+ * still, the parts that move across the whole window, and keeps the rest
+ * moving.
+ */
+export type Motion = 'full' | 'calm' | 'off'
+
+/** A motion level from the older on-or-off flag, which callers may still pass. */
+export const toMotion = (level: Motion | boolean): Motion =>
+  level === true ? 'full' : level === false ? 'off' : level
+
+/**
+ * What one build shares: the palette, the PRNG, the width and the view.
+ * `animated` is false only with motion off; `isCalm` also holds the weather
+ * and the searchlights.
+ */
+type Ctx = { p: Palette; r: Rand; W: number; view: View; animated: boolean; isCalm: boolean }
 
 /** Animation markup, left out of a still build. */
 const motion = (c: Ctx, markup: string) => (c.animated ? markup : '')
@@ -313,7 +342,12 @@ function megastructure(c: Ctx, cx: number, base: number, crown: number, h: numbe
   )
 }
 
-/** A stack that vents a burst of flame, with the glow it throws on the smog. */
+/**
+ * A stack that vents a burst of flame, with the glow it throws on the smog.
+ * The glow is a gradient that fades as a blurred disc would: it was a disc
+ * put through a wide blur filter, and the gradient needs none. The flame's
+ * own gradient already fades at its edge, so it takes no filter either.
+ */
 function flareStack(c: Ctx, x: number, h: number, delay: number) {
   const { p } = c
   const top = H - h
@@ -323,8 +357,8 @@ function flareStack(c: Ctx, x: number, h: number, delay: number) {
   return (
     `<rect x="${x - 7}" y="${top}" width="14" height="${h}" fill="${p.mega}"/>` +
     `<rect x="${x - 11}" y="${top}" width="22" height="8" fill="${p.mega}"/>` +
-    `<circle cx="${x}" cy="${top - 40}" r="120" fill="${p.flame}" opacity="${c.animated ? 0 : 0.16}" filter="url(#soft)">${burn('opacity', '0;0.3;0.22;0.3;0;0')}</circle>` +
-    `<ellipse cx="${x}" cy="${top - 34}" rx="15" ry="${c.animated ? 6 : 40}" fill="url(#flame)" opacity="${c.animated ? 0 : 0.9}" filter="url(#glow)">` +
+    `<circle cx="${x}" cy="${top - 40}" r="185" fill="url(#smog)" opacity="${c.animated ? 0 : 0.16}">${burn('opacity', '0;0.3;0.22;0.3;0;0')}</circle>` +
+    `<ellipse cx="${x}" cy="${top - 34}" rx="17" ry="${c.animated ? 6 : 40}" fill="url(#flame)" opacity="${c.animated ? 0 : 0.9}">` +
     burn('ry', '6;58;40;66;10;6') +
     burn('cy', `${top - 8};${top - 56};${top - 40};${top - 64};${top - 12};${top - 8}`) +
     burn('opacity', '0;1;0.85;1;0;0') +
@@ -403,7 +437,9 @@ function beams(c: Ctx) {
     const sweep = between(r, 14, 30)
     const dur = between(r, 15, 28)
     const opacity = (0.08 + r() * 0.08).toFixed(2)
-    const rake = motion(c, `<animateTransform attributeName="transform" type="rotate" values="${lean - sweep};${lean + sweep};${lean - sweep}" dur="${dur}s" repeatCount="indefinite"/>`)
+    const rake = c.isCalm
+      ? ''
+      : motion(c, `<animateTransform attributeName="transform" type="rotate" values="${lean - sweep};${lean + sweep};${lean - sweep}" dur="${dur}s" repeatCount="indefinite"/>`)
     out.push(
       `<g transform="translate(${bx} ${H - 300})"><path d="M0 0L${-spread} -900h${spread * 2}z" fill="url(#beam)" opacity="${opacity}" transform="rotate(${lean})">${rake}</path></g>`,
     )
@@ -575,16 +611,20 @@ const cache = new Map<string, string>()
 
 /**
  * The SVG document for a preset, built once per module load, view and motion.
- * `animated` adds the moving parts: weather, craft, flames, the overlay.
+ * `full` adds every moving part: weather, searchlights, craft, flames, the
+ * overlay. `calm` leaves the weather and the searchlights as a still picture.
  */
-export function sceneSvg(id: PresetId, view: View = 'full', animated = false): string {
-  const key = `${id}:${view}:${animated ? 'anim' : 'still'}`
+export function sceneSvg(id: PresetId, view: View = 'full', level: Motion | boolean = false): string {
+  const motionLevel = toMotion(level)
+  const animated = motionLevel !== 'off'
+  const isCalm = motionLevel === 'calm'
+  const key = `${id}:${view}:${motionLevel}`
   const hit = cache.get(key)
   if (hit) return hit
 
   const W = VIEWS[view].width
   const p: Palette = PRESETS[id]
-  const c: Ctx = { p, r: mulberry32(p.seed), W, view, animated }
+  const c: Ctx = { p, r: mulberry32(p.seed), W, view, animated, isCalm }
   const isStrip = view === 'strip'
   const signs: string[] = []
   const nearSigns: string[] = []
@@ -615,9 +655,10 @@ export function sceneSvg(id: PresetId, view: View = 'full', animated = false): s
     : flareStack(c, 560, 440, 0) + flareStack(c, 1360, 390, 2.7)
   const ship = isStrip ? airship(c, 420, 520, 140) : airship(c, 200, 210, 60)
 
-  const weatherParts = animated ? weather(c) : { defs: '', fills: '' }
+  const hasWeather = animated && !isCalm
+  const weatherParts = hasWeather ? weather(c) : { defs: '', fills: '' }
   const lights = beams(c) + craft(c)
-  const rainStill = animated ? '' : stillRain(c)
+  const rainStill = hasWeather ? '' : stillRain(c)
 
   const hud =
     view === 'strip' ? overlay(c, 0, 330, 2600, 630, 2.5, 100)
@@ -625,7 +666,8 @@ export function sceneSvg(id: PresetId, view: View = 'full', animated = false): s
     : { defs: '', body: '' }
 
   const sun = p.sun
-    ? `<circle cx="${W / 2}" cy="${p.sun.cy}" r="${p.sun.r}" fill="${p.sun.color}" opacity="0.85" filter="url(#soft)"/>`
+    ? // the strip shows a band of sky above the rooftops, so its sun rides higher
+      `<circle cx="${Math.round(W * p.sun.cx)}" cy="${isStrip ? 480 : p.sun.cy}" r="${p.sun.r}" fill="${p.sun.color}" opacity="${p.sun.opacity}" filter="url(#soft)"/>`
     : ''
 
   const svg =
@@ -648,6 +690,12 @@ export function sceneSvg(id: PresetId, view: View = 'full', animated = false): s
     `</linearGradient>` +
     `<radialGradient id="flame" cx="0.5" cy="0.75" r="0.6">` +
     `<stop offset="0" stop-color="#fff6d8"/><stop offset="0.45" stop-color="${p.flame}"/><stop offset="1" stop-color="${p.flame}" stop-opacity="0"/>` +
+    `</radialGradient>` +
+    // a disc of 120 under a 28px blur, as a gradient: full to 70, half at 120, gone by 185
+    `<radialGradient id="smog">` +
+    `<stop offset="0" stop-color="${p.flame}"/><stop offset="0.38" stop-color="${p.flame}" stop-opacity="0.97"/>` +
+    `<stop offset="0.65" stop-color="${p.flame}" stop-opacity="0.5"/><stop offset="0.82" stop-color="${p.flame}" stop-opacity="0.13"/>` +
+    `<stop offset="1" stop-color="${p.flame}" stop-opacity="0"/>` +
     `</radialGradient>` +
     `<radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75">` +
     `<stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.65"/>` +
@@ -673,7 +721,7 @@ export function sceneSvg(id: PresetId, view: View = 'full', animated = false): s
     nearSigns.join('') +
     flares.join('') +
     `<rect y="${H - 260}" width="${W}" height="260" fill="url(#fog)"/>` +
-    (animated ? weatherParts.fills : rainStill) +
+    (hasWeather ? weatherParts.fills : rainStill) +
     `<rect width="${W}" height="${H}" fill="url(#scan)"/>` +
     (isStrip ? '' : `<rect width="${W}" height="${H}" fill="url(#vignette)"/>`) +
     hud.body +

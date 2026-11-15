@@ -9,9 +9,9 @@ export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 export type Vitals = {
   isWorking: boolean
   /** Tool calls in the turn running now, or the last one. */
-  turnOps: number
-  /** Whether one of them came back as an error. */
-  hadFault: boolean
+  turnCalls: number
+  /** Whether one of them failed. */
+  hadFailure: boolean
   /** How full the context window is, 0 to 100. */
   context: number
   limits: readonly Limit[]
@@ -45,12 +45,38 @@ export function parseLimits(json: string): Limit[] {
   }
 }
 
-/** A limit's two-character label for the gauge. */
-export const limitLabel = (kind: string) =>
-  kind === 'five_hour' ? '5H' : kind === 'seven_day' ? '7D' : kind === 'spend_limit' ? 'SP' : kind.slice(0, 2).toUpperCase()
-
 const limitName = (kind: string) =>
   kind === 'five_hour' ? 'five-hour' : kind === 'seven_day' ? 'weekly' : kind === 'spend_limit' ? 'spend' : kind.replace(/_/g, ' ')
+
+/** From this share of a limit used, the companion speaks of it and books a note for its reset. */
+export const HOT_LIMIT = 80
+
+/** The longest a client holds a booked notification. */
+const WEEK_MS = 7 * 86_400_000
+
+/** One notification to book: its name among this mod's, the moment to raise it, and what it says. */
+export type ResetAlert = { key: string; at: number; text: string }
+
+/**
+ * The notifications to hold at `now`: one for each limit used past HOT_LIMIT
+ * whose reset lies ahead, and no further ahead than a client will hold one.
+ * It is raised at the reset, so it says the limit is open again.
+ */
+export function resetAlerts(limits: readonly Limit[], now: number): ResetAlert[] {
+  if (now <= 0) return []
+  const alerts: ResetAlert[] = []
+  for (const limit of limits) {
+    if (limit.percentUsed < HOT_LIMIT || !limit.resetsAt) continue
+    const at = Date.parse(limit.resetsAt)
+    if (Number.isNaN(at) || at <= now || at - now >= WEEK_MS) continue
+    alerts.push({
+      key: `limit-${limit.kind.replace(/[^A-Za-z0-9_-]/g, '-')}`,
+      at,
+      text: `Your ${limitName(limit.kind)} limit has reset. You have a fresh window to work in.`,
+    })
+  }
+  return alerts
+}
 
 const two = (n: number) => String(n).padStart(2, '0')
 
@@ -63,10 +89,15 @@ export function hhmm(ms: number): string {
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as const
 
-/** `21:17  FRI 13 NOV`: the clock as a title card would set it. */
-export function clockLabel(ms: number): string {
+/** `FRI 13 NOV`: the date as a title card would set it. */
+export function dateLabel(ms: number): string {
   const d = new Date(ms)
-  return `${hhmm(ms)}  ${DAYS[d.getDay()]} ${two(d.getDate())} ${MONTHS[d.getMonth()]}`
+  return `${DAYS[d.getDay()]} ${two(d.getDate())} ${MONTHS[d.getMonth()]}`
+}
+
+/** `21:17  FRI 13 NOV`: the clock and the date together. */
+export function clockLabel(ms: number): string {
+  return `${hhmm(ms)}  ${dateLabel(ms)}`
 }
 
 /** How long the session has run, as `HH:MM`; `--:--` when the start is unknown. */
@@ -95,23 +126,23 @@ export function companionLine(v: Vitals): string {
   const context = Math.round(v.context)
 
   if (v.isWorking) {
-    return v.turnOps > 0
-      ? `Working on it. ${plural(v.turnOps, 'operation')} so far this turn.`
+    return v.turnCalls > 0
+      ? `Working on it. ${plural(v.turnCalls, 'tool call')} so far this turn.`
       : 'Working on it.'
   }
-  // What is about to run out comes before a fault: a command that exits
+  // What is about to run out comes before a failure: a command that exits
   // non-zero is routine, and it shouldn't hide a warning that matters more.
   if (context >= 85) {
     return `Context is at ${context} percent. Run /compact soon, before it gets trimmed for you.`
   }
-  const hot = v.limits.find(limit => limit.percentUsed >= 80)
+  const hot = v.limits.find(limit => limit.percentUsed >= HOT_LIMIT)
   if (hot) {
     const resets = hot.resetsAt ? Date.parse(hot.resetsAt) : NaN
     const when = Number.isNaN(resets) ? '' : ` It resets at ${hhmm(resets)}.`
     return `You have used ${Math.round(hot.percentUsed)} percent of your ${limitName(hot.kind)} limit.${when}`
   }
-  if (v.hadFault) {
-    return 'One of those operations faulted. Worth reading the error before a retry.'
+  if (v.hadFailure) {
+    return 'One of those tool calls failed. Worth reading the error before a retry.'
   }
   if (v.lastSeconds >= 300) {
     return `That one ran ${Math.round(v.lastSeconds / 60)} minutes. A good moment to stretch.`

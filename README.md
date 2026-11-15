@@ -6,6 +6,20 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
 
 **New here?** [GUIDE.md](GUIDE.md) explains every command and how to read the console, in plain words.
 
+## New on 15 November 2026 (version 1.1.0)
+
+- **The working line says what Claude is doing.** It leads with `UPLINK`, `REASONING`, `OPERATING` or `COMPOSING`, then the app's own words.
+- **Joi has moods.** The light around her takes the color of the fullest gauge, and she flickers faster as it nears full.
+- **Joi's row is live.** Her line is typed out, beside a clock that counts seconds and a timer for the running turn.
+- **Tool cards say what happened.** A finished call shows how long it ran and what came back: lines of output, lines read, lines added and removed, files and matches found.
+- **A notification when a limit resets.** When a plan limit passes 80 percent, one desktop notification is booked for the moment it resets. `/theme-mod alerts on|off`.
+- **Three motion levels.** `/theme-mod motion full|calm|off`. `calm` holds the rain, the dust and the searchlights still and keeps the rest moving.
+- **A steadier, clearer console.** Its gauges hold their figures while a turn runs, so the animation is never interrupted. The layout sits on one grid, the small print is larger, and no text runs past its cell.
+- **Readable glass.** Each look's glass is as heavy as its city needs for the words to stay readable, and Amber Dust's sun sits out from under the conversation.
+- **Gauge colors you can tell apart in every look.** Olive, amber and red in Amber Dust; green, orange and red in Acid Rain.
+
+[CHANGELOG.md](CHANGELOG.md) has the full list, including what the theme now does less of in the background.
+
 ## What you get
 
 - **The app's own colors.** Blue-black surfaces, warm paper-white type and cyan controls, with code highlighted in the same neon set.
@@ -14,9 +28,9 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
   - **Context:** percent used, what is filling the window, and a trend with an estimate of the turns you have left.
   - **Plan limits:** how much of each limit is used against how much of its time has gone, and when it resets.
   - **Tool calls per turn:** one bar per recent turn, with failed calls in red.
-  - A live row of counters, session uptime and a clock.
-- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed.
-- **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls, and a stamp under each answer with its time and usage.
+  - A row of counters with session uptime and the date.
+- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed. Her line is typed out as she says it, beside a clock that counts seconds and a timer for the turn that is running. The light around her turns the color of a gauge that is filling up, and she flickers faster as it nears full. When a plan limit passes 80 percent she books one desktop notification for the moment it resets.
+- **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls that say how long each ran and what came back, a lead on the working line that says what Claude is doing, and a stamp under each answer with its time and usage.
 - **A control deck.** A side panel with a button for every option.
 
 ![The command console with sample readings](docs/console.svg)
@@ -26,7 +40,7 @@ Three looks ship with it: **Neon Noir** (the default), **Amber Dust** and **Acid
 ## Requirements
 
 - The Claude desktop app, with a local session in the Code tab.
-- Claude Code **2.1.325 or later** inside the app. Type `/status` in a session to check, and update the desktop app if yours is older.
+- Claude Code **2.1.325 or later** inside the app. Type `/status` in a session to check, and update the desktop app if yours is older. On an older build the theme says so once when a session starts.
 
 The terminal and editor extensions draw no look, so the theme does nothing visible there. It was built and checked on Windows with Claude Desktop 5.11492.5. Mods are an early-access part of Claude Code, so a later release may change something this theme relies on.
 
@@ -68,8 +82,9 @@ Start a new session in the Code tab after installing. The colors, the city and t
 | `/theme-mod band console` · `rail` · `scene` · `off` | What sits above the prompt: the console, a slim ruler, a skyline strip, or nothing |
 | `/theme-mod companion on` · `off` | Shows or hides the hologram |
 | `/theme-mod companion name <name>` | Renames the companion |
-| `/theme-mod rain on` · `off` | Turns the scene's motion on or off |
+| `/theme-mod motion full` · `calm` · `off` | How much moves. `calm` holds the rain, dust and searchlights still; `off` holds everything still |
 | `/theme-mod style on` · `off` | Turns the tags and cards in the conversation on or off |
+| `/theme-mod alerts on` · `off` | Turns the limit-reset notification on or off |
 | `/theme-mod deck` | Opens the control deck |
 | `/theme-mod off` | Goes back to the app's own look |
 
@@ -83,15 +98,17 @@ Your choices are remembered across sessions.
 - **Give her a face.** `python tools/make-portrait.py path/to/picture.png` redraws a picture as small colored cells and writes it into `hooks/portrait.ts`. It needs Pillow (`pip install pillow`). `--clear` goes back to the drawn figure. Use only a picture you have the right to use.
 - **Change the colors** in `hooks/looks.ts` (the app's palette) and `hooks/scenes.ts` (the city and the readouts).
 
-If the window feels heavy, `/theme-mod glass solid` or `/theme-mod rain off` lightens it.
+If the window feels heavy, try `/theme-mod motion calm`, which holds the rain, the dust and the searchlights still. `/theme-mod motion off` holds everything still, and `/theme-mod glass solid` removes the city.
 
 ## What the mod can do
 
 A mod runs inside Claude Code with your permissions, so check one before you install it. This one:
 
 - reads your session's usage, model, working folder and turn count, and counts tool calls in the transcript, to draw its readouts
+- times each tool call and reads its result as the app shows it, to put a line count or a count of changes on its card
 - stores your theme choices in the mod's own settings file
 - draws in the interface and adds the `/theme-mod` command
+- raises a desktop notification through the app when a plan limit that ran low resets (`/theme-mod alerts off` stops it)
 
 It makes no network requests, starts no processes, and reads or writes none of your project's files. To list every event it handles and every call it makes without running it:
 
@@ -111,7 +128,27 @@ claude plugin test .       # the test suite: no session or network needed
 claude --plugin-dir .      # load it for one terminal session, reloading on save
 ```
 
-The scenes are generated from a seeded random number generator in `hooks/scenes.ts`, so every build of a look is identical. `hooks/console.ts` draws the console, `hooks/companion.ts` decides what the companion says, and `hooks/register.tsx` wires them to Claude Code's events.
+To type-check it, start one session with `claude --plugin-dir .` first. Loading the mod that way makes Claude Code write its types into `.claude-plugin/types/` and a `tsconfig.json` beside them (both are in `.gitignore`). Then run TypeScript 5.4 or later over the folder:
+
+```bash
+npx -p typescript tsc -p .
+```
+
+Where things are, all under `hooks/`:
+
+| File | What it holds |
+| --- | --- |
+| `register.tsx` | The hooks: it reads the session and wires everything below to Claude Code's events |
+| `scenes.ts` | The city, drawn from a seeded random number generator, so every build of a look is identical |
+| `console.ts` | The console's drawing |
+| `companion.ts` | What the companion says, and which notifications to book |
+| `live-row.tsx` | Her typed line, the seconds clock and the turn timer, on the app's own frame clock |
+| `readings.ts` | How a turn, the context and a plan limit are stored, read back and worded |
+| `tools.ts` | The facts on a tool call's card |
+| `looks.ts` | Each look's app palette and how heavy its glass is |
+| `*.test.tsx`, `test-world.ts` | The tests, by subject, and what they share |
+
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
 
 ## About
 
