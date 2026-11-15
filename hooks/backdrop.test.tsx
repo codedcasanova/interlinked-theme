@@ -874,7 +874,11 @@ test('the control deck switches the look and the glass from its buttons', async 
   expect(stored.glass).toBe('solid')
   expect(sets.at(-1)?.backdrop).toBeUndefined()
 
-  await ui.press({ key: 'rain' })
+  await ui.press({ key: 'motion-calm' })
+  expect(stored.motion).toBe('calm')
+  await ui.press({ key: 'motion-off' })
+  expect(stored.motion).toBe('off')
+  // the older on-or-off key is kept in step, for a copy of the mod that still reads it
   expect(stored.rain).toBe(false)
   await ui.press({ key: 'companion' })
   expect(stored['companion.on']).toBe(false)
@@ -902,6 +906,61 @@ test('the backdrop draws this mod scene and leaves others alone', async ($, on) 
   const theirs = await $.ui.mount(scene('neon-noir', 'someone-else') as never)
   expect(await theirs.find({ type: 'Svg' })).toBeUndefined()
   await theirs.unmount()
+})
+
+test('motion has three levels, and reads what an older version stored', async ($, on) => {
+  // calm holds the weather and the searchlights still and keeps the rest moving
+  for (const id of PRESET_IDS) {
+    const calm = sceneSvg(id, 'full', 'calm')
+    expect(calm.includes('patternTransform')).toBe(false)
+    expect(calm.includes('type="rotate"')).toBe(false)
+    expect(calm.includes('<animateMotion')).toBe(true)
+    expect(calm.length < 131072).toBe(true)
+    // the older flag still names the two ends
+    expect(sceneSvg(id, 'full', true)).toBe(sceneSvg(id, 'full', 'full'))
+    expect(sceneSvg(id, 'full', false)).toBe(sceneSvg(id, 'full', 'off'))
+    expect(sceneSvg(id, 'full', 'full').includes('type="rotate"')).toBe(true)
+  }
+  // a rainy look keeps its rain as a still picture
+  expect(sceneSvg('neon-noir', 'full', 'full').includes('id="rainFar"')).toBe(true)
+  expect(sceneSvg('neon-noir', 'full', 'calm').includes('stroke-linecap="round" opacity="0.22"')).toBe(true)
+
+  const { stored } = world(on, { rain: false })
+  on('classic.SessionStart', () => ({}))
+  const run = (args: string) => $.command.run({ command: 'theme-mod', args } as never) as Promise<{ text: string }>
+  const backdrop = {
+    plugin: MOD, component: 'Backdrop', requestId: 'backdrop', surface: 'desktop',
+    props: { scene: 'neon-noir', plugin: MOD, glass: { blur: 12, tint: '#080b12', opacity: 0.68 }, overrideColorScheme: 'dark' },
+  }
+  const drawn = async () => {
+    const ui = await $.ui.mount(backdrop as never)
+    const svg = (await ui.find({ type: 'Svg' })) as Drawn
+    await ui.unmount()
+    return svg?.props
+  }
+
+  // an older version stored motion as on or off
+  await $.session.start(START)
+  expect((await run('status')).text).toContain('MOTION off')
+  expect((await drawn())?.isInteractive).toBeUndefined()
+
+  expect((await run('motion calm')).text).toContain('Motion calm')
+  expect(stored.motion).toBe('calm')
+  expect(stored.rain).toBe(true)
+  expect((await drawn())?.source).toBe(sceneSvg('neon-noir', 'full', 'calm'))
+  expect((await drawn())?.isInteractive).toBe(true)
+
+  // the older command still works, and names the two ends
+  await run('rain on')
+  expect(stored.motion).toBe('full')
+  await run('rain off')
+  expect(stored.motion).toBe('off')
+  expect((await run('motion sideways')).text).toContain('Usage: /theme-mod motion full|calm|off')
+
+  // the level comes back after /clear
+  stored.motion = 'calm'
+  await $.classic.SessionStart({ source: 'clear' } as never)
+  expect((await run('status')).text).toContain('MOTION calm')
 })
 
 test('the saved choices come back after /clear', async ($, on) => {

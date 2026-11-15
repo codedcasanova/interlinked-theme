@@ -68,7 +68,7 @@ Start a new session in the Code tab after installing. The colors, the city and t
 | `/theme-mod band console` · `rail` · `scene` · `off` | What sits above the prompt: the console, a slim ruler, a skyline strip, or nothing |
 | `/theme-mod companion on` · `off` | Shows or hides the hologram |
 | `/theme-mod companion name <name>` | Renames the companion |
-| `/theme-mod rain on` · `off` | Turns the scene's motion on or off |
+| `/theme-mod motion full` · `calm` · `off` | How much moves. `calm` holds the rain, dust and searchlights still; `off` holds everything still |
 | `/theme-mod style on` · `off` | Turns the tags and cards in the conversation on or off |
 | `/theme-mod alerts on` · `off` | Turns the limit-reset notification on or off |
 | `/theme-mod deck` | Opens the control deck |
@@ -84,7 +84,7 @@ Your choices are remembered across sessions.
 - **Give her a face.** `python tools/make-portrait.py path/to/picture.png` redraws a picture as small colored cells and writes it into `hooks/portrait.ts`. It needs Pillow (`pip install pillow`). `--clear` goes back to the drawn figure. Use only a picture you have the right to use.
 - **Change the colors** in `hooks/looks.ts` (the app's palette) and `hooks/scenes.ts` (the city and the readouts).
 
-If the window feels heavy, `/theme-mod glass solid` or `/theme-mod rain off` lightens it.
+If the window feels heavy, try `/theme-mod motion calm`, which stops the three things that redraw the whole window on every frame (rain, dust and searchlights). `/theme-mod motion off` holds everything still, and `/theme-mod glass solid` removes the city.
 
 ## What the mod can do
 

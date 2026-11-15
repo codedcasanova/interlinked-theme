@@ -13,7 +13,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs } from 'claude-code'
 
-import type { Band, Current, Glass } from '../types'
+import type { Band, Current, Glass, Motion } from '../types'
 import {
   DEFAULT_NAME, HOT_LIMIT, cleanName, clockLabel, companionLine, dateLabel, hhmm, parseLimits, resetAlerts, uptimeLabel,
 } from './companion'
@@ -32,7 +32,9 @@ const DEFAULT: PresetId = 'neon-noir'
 /** `$.store` keys, kept across sessions. */
 const CHOICE = 'preset'
 const BAND = 'band'
+/** Motion as older versions stored it: on or off. Still written, so an older copy reads it. */
 const RAIN = 'rain'
+const MOTION = 'motion'
 const STYLE = 'style'
 const GLASS = 'glass'
 const COMPANION = 'companion'
@@ -56,11 +58,12 @@ const GLASS_LEVELS: Record<Exclude<Glass, 'solid'>, { blur: number; opacity: num
 
 const BANDS: readonly Band[] = ['console', 'rail', 'scene', 'off']
 const GLASSES: readonly Glass[] = ['clear', 'frost', 'solid']
+const MOTIONS: readonly Motion[] = ['full', 'calm', 'off']
 
 const current = atom({ plugin: 'interlinked-theme', key: 'current' } as const, DEFAULT as Current)
 const band = atom({ plugin: 'interlinked-theme', key: 'band' } as const, 'console' as Band)
 const glass = atom({ plugin: 'interlinked-theme', key: 'glass' } as const, 'frost' as Glass)
-const isAnimated = atom({ plugin: 'interlinked-theme', key: 'isAnimated' } as const, true)
+const motion = atom({ plugin: 'interlinked-theme', key: 'motion' } as const, 'full' as Motion)
 const isStyled = atom({ plugin: 'interlinked-theme', key: 'isStyled' } as const, true)
 const isBackdropDrawn = atom({ plugin: 'interlinked-theme', key: 'isBackdropDrawn' } as const, false)
 const ops = atom({ plugin: 'interlinked-theme', key: 'ops' } as const, 0)
@@ -299,6 +302,7 @@ const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).p
 
 const isBand = (v: unknown): v is Band => BANDS.includes(v as Band)
 const isGlass = (v: unknown): v is Glass => GLASSES.includes(v as Glass)
+const isMotion = (v: unknown): v is Motion => MOTIONS.includes(v as Motion)
 const isOnOff = (v: string): v is 'on' | 'off' => v === 'on' || v === 'off'
 
 /** What the working line leads with, by what the turn is doing. A mode not listed gets no lead. */
@@ -368,8 +372,11 @@ async function loadChoices($: EngineInterface): Promise<Current> {
   await update($, band, () => toBand(savedBand))
   const savedGlass = await $.store.get(GLASS)
   await update($, glass, () => (isGlass(savedGlass) ? savedGlass : 'frost'))
+  // the level, or what an earlier version stored: motion on or off
+  const savedMotion = await $.store.get(MOTION)
   const rain = await $.store.get(RAIN)
-  await update($, isAnimated, () => rain !== false)
+  const level: Motion = isMotion(savedMotion) ? savedMotion : rain === false ? 'off' : 'full'
+  await update($, motion, () => level)
   const style = await $.store.get(STYLE)
   await update($, isStyled, () => style !== false)
   const name = await $.store.get(COMPANION)
@@ -548,9 +555,12 @@ async function chooseBand($: EngineInterface, choice: Band): Promise<string> {
   return choice === 'off' ? 'Band hidden.' : `Band: ${choice}.`
 }
 
-async function setRain($: EngineInterface, isOn: boolean): Promise<string> {
-  await $.store.set(RAIN, isOn)
-  await update($, isAnimated, () => isOn)
+async function setMotion($: EngineInterface, level: Motion): Promise<string> {
+  await $.store.set(MOTION, level)
+  await $.store.set(RAIN, level !== 'off')
+  await update($, motion, () => level)
+  if (level === 'calm') return 'Motion calm: the rain, the dust and the searchlights hold still; the rest moves.'
+  const isOn = level === 'full'
   return isOn ? 'Motion on.' : 'Motion off: the scene holds still.'
 }
 
@@ -581,7 +591,7 @@ const usage = () =>
     `/${COMMAND} band console|rail|scene|off  what sits above the prompt`,
     `/${COMMAND} companion on|off          the hologram in the console`,
     `/${COMMAND} companion name <name>     what the hologram answers to`,
-    `/${COMMAND} rain on|off               motion in the scene`,
+    `/${COMMAND} motion full|calm|off      how much moves (rain on|off still works)`,
     `/${COMMAND} style on|off              tags and cards in the conversation`,
     `/${COMMAND} alerts on|off             a notification when a limit that ran low resets`,
     `/${COMMAND} deck                      open the control deck`,
@@ -597,7 +607,7 @@ async function statusText($: EngineInterface): Promise<string> {
     `GLASS  ${await read($, glass)}`,
     `BAND   ${await read($, band)}`,
     `HOLO   ${(await read($, isCompanionOn)) ? (await read($, companion)) : 'off'}`,
-    `RAIN   ${(await read($, isAnimated)) ? 'on' : 'off'}`,
+    `MOTION ${await read($, motion)}`,
     `STYLE  ${(await read($, isStyled)) ? 'on' : 'off'}`,
     `ALERTS ${(await read($, isAlertsOn)) ? 'on' : 'off'}`,
     '',
@@ -632,9 +642,15 @@ async function runCommand($: EngineInterface, args: string) {
     return { text: `Usage: /${COMMAND} companion on|off, or /${COMMAND} companion name <name>` }
   }
 
+  if (verb === 'motion') {
+    if (!isMotion(option)) return { text: `Usage: /${COMMAND} motion full|calm|off` }
+    return { text: await setMotion($, option) }
+  }
+
+  // the older name for the same switch
   if (verb === 'rain') {
-    if (!isOnOff(option)) return { text: `Usage: /${COMMAND} rain on|off` }
-    return { text: await setRain($, option === 'on') }
+    if (!isOnOff(option)) return { text: `Usage: /${COMMAND} motion full|calm|off` }
+    return { text: await setMotion($, option === 'on' ? 'full' : 'off') }
   }
 
   if (verb === 'style') {
@@ -672,7 +688,7 @@ export const register: Register = on => {
       await $.command.register({
         name: COMMAND,
         description: 'Interlinked look: presets, glass, command console, companion, motion, row styling, alerts, control deck',
-        argumentHint: `[${PRESET_IDS.join('|')}|glass|band|companion|rain|style|alerts|deck|off]`,
+        argumentHint: `[${PRESET_IDS.join('|')}|glass|band|companion|motion|style|alerts|deck|off]`,
       })
     } catch {
       // The name is taken on this build: the look still loads.
@@ -845,7 +861,8 @@ export const register: Register = on => {
     const choice = await read($, band)
     if (!isPresetId(now) || choice === 'off') return next(e)
 
-    const anim = await read($, isAnimated)
+    const level = await read($, motion)
+    const anim = level !== 'off'
     const p = PRESETS[now]
     const hud = p.hud
     const ground = LOOKS[now].surface
@@ -899,7 +916,7 @@ export const register: Register = on => {
     } else if (choice === 'scene') {
       graphic = (
         <Svg
-          source={sceneSvg(now, 'strip', anim)}
+          source={sceneSvg(now, 'strip', level)}
           alt={`${p.label}: rooftops under a measurement grid`}
           width={STRIP.width}
           height={STRIP.height}
@@ -1170,7 +1187,8 @@ export const register: Register = on => {
       )
     }
 
-    const anim = await read($, isAnimated)
+    const moving = await read($, motion)
+    const anim = moving !== 'off'
     const styled = await read($, isStyled)
     const level = await read($, glass)
     const choice = await read($, band)
@@ -1193,7 +1211,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         <Box overflow="hidden" backgroundColor={p.skyTop}>
           <Svg
-            source={sceneSvg(now, 'deck', anim)}
+            source={sceneSvg(now, 'deck', moving)}
             alt={`${p.label}: the city under an analysis grid, with a stepping crosshair`}
             width={width}
             height={height}
@@ -1241,14 +1259,20 @@ export const register: Register = on => {
           ))}
         </Box>
 
+        {heading('MOTION  ·  how much moves')}
+        <Box flexDirection="row" flexWrap="wrap" gap={1}>
+          {MOTIONS.map(m => (
+            <Button
+              key={`motion-${m}`}
+              label={m}
+              variant={m === moving ? 'primary' : 'secondary'}
+              onPress={() => setMotion($, m)}
+            />
+          ))}
+        </Box>
+
         {heading('SYSTEMS')}
         <Box flexDirection="row" flexWrap="wrap" gap={1}>
-          <Button
-            key="rain"
-            label={anim ? 'Motion: on' : 'Motion: off'}
-            variant={anim ? 'primary' : 'secondary'}
-            onPress={() => setRain($, !anim)}
-          />
           <Button
             key="style"
             label={styled ? 'Row styling: on' : 'Row styling: off'}
@@ -1306,11 +1330,12 @@ export const register: Register = on => {
     // An app asked for the scene, so it draws backdrops: /theme-mod status says so.
     hasDrawnScene = true
 
-    const anim = await read($, isAnimated)
+    const level = await read($, motion)
+    const anim = level !== 'off'
     const { Svg } = $.ui.resolve(e)
     return (
       <Svg
-        source={sceneSvg(id, 'full', anim)}
+        source={sceneSvg(id, 'full', level)}
         alt={`${PRESETS[id].label}: a city at night`}
         isInteractive={anim || undefined}
       />

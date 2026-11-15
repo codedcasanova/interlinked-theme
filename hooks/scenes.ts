@@ -149,8 +149,23 @@ const between = (r: Rand, lo: number, hi: number) => Math.round(lo + r() * (hi -
 const pick = <T,>(r: Rand, list: readonly T[]): T => list[Math.floor(r() * list.length)]!
 const pad4 = (n: number) => String(Math.max(0, Math.round(n))).padStart(4, '0')
 
-/** What one build shares: the palette, the PRNG, the width and the view. */
-type Ctx = { p: Palette; r: Rand; W: number; view: View; animated: boolean }
+/**
+ * How much of a scene moves. `calm` holds still the parts that redraw the
+ * whole window on every frame (the weather and the searchlights) and keeps
+ * the rest moving.
+ */
+export type Motion = 'full' | 'calm' | 'off'
+
+/** A motion level from the older on-or-off flag, which callers may still pass. */
+export const toMotion = (level: Motion | boolean): Motion =>
+  level === true ? 'full' : level === false ? 'off' : level
+
+/**
+ * What one build shares: the palette, the PRNG, the width and the view.
+ * `animated` is false only with motion off; `isCalm` also holds the weather
+ * and the searchlights.
+ */
+type Ctx = { p: Palette; r: Rand; W: number; view: View; animated: boolean; isCalm: boolean }
 
 /** Animation markup, left out of a still build. */
 const motion = (c: Ctx, markup: string) => (c.animated ? markup : '')
@@ -409,7 +424,9 @@ function beams(c: Ctx) {
     const sweep = between(r, 14, 30)
     const dur = between(r, 15, 28)
     const opacity = (0.08 + r() * 0.08).toFixed(2)
-    const rake = motion(c, `<animateTransform attributeName="transform" type="rotate" values="${lean - sweep};${lean + sweep};${lean - sweep}" dur="${dur}s" repeatCount="indefinite"/>`)
+    const rake = c.isCalm
+      ? ''
+      : motion(c, `<animateTransform attributeName="transform" type="rotate" values="${lean - sweep};${lean + sweep};${lean - sweep}" dur="${dur}s" repeatCount="indefinite"/>`)
     out.push(
       `<g transform="translate(${bx} ${H - 300})"><path d="M0 0L${-spread} -900h${spread * 2}z" fill="url(#beam)" opacity="${opacity}" transform="rotate(${lean})">${rake}</path></g>`,
     )
@@ -581,16 +598,20 @@ const cache = new Map<string, string>()
 
 /**
  * The SVG document for a preset, built once per module load, view and motion.
- * `animated` adds the moving parts: weather, craft, flames, the overlay.
+ * `full` adds every moving part: weather, searchlights, craft, flames, the
+ * overlay. `calm` leaves the weather and the searchlights as a still picture.
  */
-export function sceneSvg(id: PresetId, view: View = 'full', animated = false): string {
-  const key = `${id}:${view}:${animated ? 'anim' : 'still'}`
+export function sceneSvg(id: PresetId, view: View = 'full', level: Motion | boolean = false): string {
+  const motionLevel = toMotion(level)
+  const animated = motionLevel !== 'off'
+  const isCalm = motionLevel === 'calm'
+  const key = `${id}:${view}:${motionLevel}`
   const hit = cache.get(key)
   if (hit) return hit
 
   const W = VIEWS[view].width
   const p: Palette = PRESETS[id]
-  const c: Ctx = { p, r: mulberry32(p.seed), W, view, animated }
+  const c: Ctx = { p, r: mulberry32(p.seed), W, view, animated, isCalm }
   const isStrip = view === 'strip'
   const signs: string[] = []
   const nearSigns: string[] = []
@@ -621,9 +642,10 @@ export function sceneSvg(id: PresetId, view: View = 'full', animated = false): s
     : flareStack(c, 560, 440, 0) + flareStack(c, 1360, 390, 2.7)
   const ship = isStrip ? airship(c, 420, 520, 140) : airship(c, 200, 210, 60)
 
-  const weatherParts = animated ? weather(c) : { defs: '', fills: '' }
+  const hasWeather = animated && !isCalm
+  const weatherParts = hasWeather ? weather(c) : { defs: '', fills: '' }
   const lights = beams(c) + craft(c)
-  const rainStill = animated ? '' : stillRain(c)
+  const rainStill = hasWeather ? '' : stillRain(c)
 
   const hud =
     view === 'strip' ? overlay(c, 0, 330, 2600, 630, 2.5, 100)
@@ -685,7 +707,7 @@ export function sceneSvg(id: PresetId, view: View = 'full', animated = false): s
     nearSigns.join('') +
     flares.join('') +
     `<rect y="${H - 260}" width="${W}" height="260" fill="url(#fog)"/>` +
-    (animated ? weatherParts.fills : rainStill) +
+    (hasWeather ? weatherParts.fills : rainStill) +
     `<rect width="${W}" height="${H}" fill="url(#scan)"/>` +
     (isStrip ? '' : `<rect width="${W}" height="${H}" fill="url(#vignette)"/>`) +
     hud.body +

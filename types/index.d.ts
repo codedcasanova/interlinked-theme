@@ -15,13 +15,21 @@ export type Band = 'console' | 'rail' | 'scene' | 'off'
  */
 export type Glass = 'clear' | 'frost' | 'solid'
 
+/**
+ * How much moves: `full` is everything; `calm` holds the rain, the dust and
+ * the searchlights still, the three that redraw the whole window on every
+ * frame, and keeps the signs, the craft, the airship and the flames; `off`
+ * holds everything still.
+ */
+export type Motion = 'full' | 'calm' | 'off'
+
 declare module 'claude-code' {
   interface PluginState {
     'interlinked-theme': {
       current: Current
       band: Band
       glass: Glass
-      isAnimated: boolean
+      motion: Motion
       /** Readout tags and cards on the conversation's rows. */
       isStyled: boolean
       /** Whether an attached app said it draws the look. */

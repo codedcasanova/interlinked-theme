@@ -43,8 +43,11 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 | `/theme-mod glass clear` | The city shows through the panels sharply |
 | `/theme-mod glass frost` | The city is blurred behind the panels, so text is easier to read. The default |
 | `/theme-mod glass solid` | No city at all. You keep the colors. The lightest on your computer |
-| `/theme-mod rain on` | Rain, lights and the hologram move, and Joi's row ticks. The default |
-| `/theme-mod rain off` | Everything holds still |
+| `/theme-mod motion full` | Rain, lights and the hologram move, and Joi's row ticks. The default |
+| `/theme-mod motion calm` | The rain, the dust and the searchlights hold still. Signs, flying craft, the airship and the flames still move |
+| `/theme-mod motion off` | Everything holds still |
+
+`/theme-mod rain on` and `rain off` are the older names for `motion full` and `motion off`, and still work.
 
 ### The strip above the prompt box
 
@@ -95,7 +98,7 @@ Under the gauges, Joi's line is typed out as she says it. At the right of that r
 
 The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the date. With Joi hidden, or a band other than the console, the bottom row shows the time as well.
 
-With `/theme-mod rain off` Joi's row holds still too: her line appears whole, and the clock moves to the bottom row and shows minutes.
+With `/theme-mod motion off` Joi's row holds still too: her line appears whole, and the clock moves to the bottom row and shows minutes.
 
 The plan limits and the chart are empty in a brand-new session. They fill in after Claude's first reply.
 
@@ -118,7 +121,7 @@ There is one per limit, never a stream: a newer reading replaces the one already
 
 | Problem | Try |
 | --- | --- |
-| The app feels slow | `/theme-mod glass solid`, or `/theme-mod rain off` |
+| The app feels slow | `/theme-mod motion calm`, then `/theme-mod motion off`, then `/theme-mod glass solid` |
 | Text is hard to read over the city | `/theme-mod glass frost`, or `/theme-mod glass solid` |
 | Nothing changed after installing | Start a new session in the Code tab. Type `/status` and check Claude Code is 2.1.325 or later |
 | You don't want notifications from the theme | `/theme-mod alerts off` |
