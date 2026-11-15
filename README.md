@@ -15,8 +15,8 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
   - **Plan limits:** how much of each limit is used against how much of its time has gone, and when it resets.
   - **Tool calls per turn:** one bar per recent turn, with failed calls in red.
   - A live row of counters, session uptime and a clock.
-- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed.
-- **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls, and a stamp under each answer with its time and usage.
+- **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed. The light around her turns the color of a gauge that is filling up, and she flickers faster as it nears full.
+- **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls, a lead on the working line that says what Claude is doing, and a stamp under each answer with its time and usage.
 - **A control deck.** A side panel with a button for every option.
 
 ![The command console with sample readings](docs/console.svg)

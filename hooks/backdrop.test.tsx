@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { cleanName, clockLabel, companionLine, limitLabel, parseLimits, uptimeLabel } from './companion'
 import type { Vitals } from './companion'
-import { consoleSvg, tokenLabel, turnsOfRoom } from './console'
+import { consoleSvg, moodOf, tokenLabel, turnsOfRoom } from './console'
 import type { ConsoleData } from './console'
 import { LOOKS } from './looks'
 import { PRESET_IDS, railSvg, sceneSvg } from './scenes'
@@ -149,6 +149,50 @@ test('the console draws its readings in plain words', async () => {
   expect(empty.includes('NO TURNS RECORDED YET')).toBe(true)
   expect(tokenLabel(1_200_000)).toBe('1.2M')
   expect(turnsOfRoom([50, 50, 50])).toBeUndefined()
+})
+
+test('the companion carries the mood of the fullest gauge', async () => {
+  const limit = (percent: number) => ({ name: '5-HOUR', percent, elapsed: 0.42, resets: '00:30', left: '2H 55M' })
+  // the gauges' own thresholds: warm from 65 percent, alarm from 85
+  expect(moodOf(42, [limit(30)])).toBe('calm')
+  expect(moodOf(64.6, [])).toBe('warm')
+  expect(moodOf(20, [limit(30), limit(93)])).toBe('alarm')
+  // only the two limits the console draws count
+  expect(moodOf(20, [limit(30), limit(30), limit(99)])).toBe('calm')
+
+  const draw = (context: number, percent: number, animated = false, picture = '') =>
+    consoleSvg('neon-noir', { ...SAMPLE, context, limits: [limit(percent)] }, animated, picture)
+  const BRACKETS = 'M6 22V10H18'
+
+  // calm is her own tint and nothing more
+  const calm = draw(42, 30)
+  expect(calm.includes(BRACKETS)).toBe(false)
+  expect(calm.includes('<stop offset="0" stop-color="#ff3da6" stop-opacity="0.9"/>')).toBe(true)
+
+  // warm and alarm take the gauge's color into the cone and bracket her cell
+  const warm = draw(71, 30)
+  expect(warm.includes(`${BRACKETS}M72 10H84V22M6 106V118H18M72 118H84V106" fill="none" stroke="#ffb000"`)).toBe(true)
+  expect(warm.includes('<stop offset="0" stop-color="#ffb000" stop-opacity="0.9"/>')).toBe(true)
+  const alarm = draw(42, 93, true)
+  expect(alarm.includes('fill="none" stroke="#ff4d5e" stroke-width="2"')).toBe(true)
+  // she flickers faster, and the emitter beats
+  expect(alarm.includes('dur="1.84s"')).toBe(true)
+  expect(alarm.includes('attributeName="rx"')).toBe(true)
+  expect(draw(42, 30, true).includes('attributeName="rx"')).toBe(false)
+  // held still, the alarm keeps its color and drops the beat
+  expect(draw(42, 93).includes('attributeName="rx"')).toBe(false)
+
+  // with a portrait the frame carries the mood, and there are no brackets.
+  // The picture is made up here, at the size a real one takes.
+  const picture = `<path d="${'M4 8h1.5v1.7h-1.5z'.repeat(3300)}" fill="#8a6fd1"/>`
+  expect(picture.length > 59_000).toBe(true)
+  const framed = draw(42, 93, true, picture)
+  expect(framed.includes(BRACKETS)).toBe(false)
+  expect(framed.includes('rx="5" fill="none" stroke="#ff4d5e" stroke-width="2" opacity="1"')).toBe(true)
+  expect(draw(42, 30, true, picture).includes('rx="5" fill="none" stroke="#ff3da6" stroke-width="1.2" opacity="0.75"')).toBe(true)
+  for (const id of PRESET_IDS) {
+    expect(consoleSvg(id, { ...SAMPLE, limits: [limit(93), limit(71)] }, true, picture).length < 131072).toBe(true)
+  }
 })
 
 test('the companion says the most pressing true thing', async () => {

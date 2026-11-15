@@ -67,7 +67,7 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 
 | Type this | What happens |
 | --- | --- |
-| `/theme-mod style on` | Adds tags to messages, cards around tool calls, and a stamp under each answer. The default |
+| `/theme-mod style on` | Adds tags to messages, cards around tool calls, a lead on the working line, and a stamp under each answer. The default |
 | `/theme-mod style off` | Leaves the conversation as the app normally draws it |
 
 ### The control deck
@@ -80,12 +80,14 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 
 Left to right:
 
-- **Joi.** She says the most important thing about your session in one line, such as a limit running low.
+- **Joi.** She says the most important thing about your session in one line, such as a limit running low. The light around her follows the fullest gauge: her own color while there is room, the gauge's warning color from 65 percent, and its alarm color from 85 percent, when she also flickers faster.
 - **Context.** How full Claude's memory for this conversation is. The bar shows what is filling it. The line under it shows how it has grown, with an estimate of the turns you have left.
 - **Plan limits.** How much of your 5-hour and weekly usage is gone. The small white marker shows how much of that time window has passed. A bar ahead of the marker means you are using it faster than the clock.
 - **Tool calls per turn.** One bar for each recent turn. Red means a tool call failed.
 
 Colors mean the same thing everywhere: cyan is fine, amber is filling up, red is nearly out.
+
+While Claude works, the line in the conversation starts with what it is doing: `UPLINK` (sending the request), `REASONING` (thinking), `OPERATING` (running a tool) or `COMPOSING` (writing the reply).
 
 The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the clock.
 

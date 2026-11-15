@@ -50,9 +50,26 @@ export function tokenLabel(n: number): string {
   return String(Math.round(n))
 }
 
+/** Where a gauge turns warm, and where it turns to alarm, in percent. */
+const WARM = 65
+const ALARM = 85
+
 /** A gauge's color by how full it is: calm, then warm, then alarm. */
 const level = (p: Palette, percent: number) =>
-  percent >= 85 ? p.hud.alert : percent >= 65 ? p.hud.primary : p.hud.secondary
+  percent >= ALARM ? p.hud.alert : percent >= WARM ? p.hud.primary : p.hud.secondary
+
+/** How the companion carries herself: at ease, watchful, or raising the alarm. */
+export type Mood = 'calm' | 'warm' | 'alarm'
+
+/**
+ * The companion's mood: the fullest of the context gauge and the plan limits,
+ * on the gauges' own thresholds, so she changes when a gauge changes color.
+ */
+export function moodOf(context: number, limits: readonly { percent: number }[]): Mood {
+  const worst = Math.max(context, ...limits.slice(0, 2).map(limit => limit.percent))
+  const percent = clamp(Math.round(worst), 0, 100)
+  return percent >= ALARM ? 'alarm' : percent >= WARM ? 'warm' : 'calm'
+}
 
 /**
  * How many more turns fit at the recent rate of growth, from the trend.
@@ -72,20 +89,33 @@ type TextStyle = { size?: number; color?: string; opacity?: number; anchor?: 'st
  * The hologram: a woman of light standing in a projector's cone, drawn as a
  * bust in scan slices with a sweep line and the odd glitch. She is this mod's
  * own figure, modelled on no one.
+ *
+ * Her mood shows in the light around her, never in the figure itself: the
+ * projector's cone, the emitter at her feet and her frame take the color of
+ * the gauge that is filling up, and she flickers faster. Calm is her own tint.
  */
-function hologram(p: Palette, ground: string, animated: boolean) {
+function hologram(p: Palette, ground: string, animated: boolean, mood: Mood, picture: string) {
   const tint = p.hud.you
+  const aura = mood === 'alarm' ? p.hud.alert : mood === 'warm' ? p.hud.primary : tint
+  // a shorter period is a faster flicker
+  const pace = mood === 'alarm' ? 0.4 : mood === 'warm' ? 0.7 : 1
+  const dur = (seconds: number) => `${Number((seconds * pace).toFixed(2))}s`
+  const glow = mood === 'alarm' ? 0.42 : mood === 'warm' ? 0.34 : 0.26
   const flicker = animated
-    ? `<animate attributeName="opacity" values="0.95;0.72;0.95;0.88;0.45;0.95" keyTimes="0;0.31;0.34;0.7;0.72;1" dur="4.6s" repeatCount="indefinite"/>`
+    ? `<animate attributeName="opacity" values="0.95;0.72;0.95;0.88;0.45;0.95" keyTimes="0;0.31;0.34;0.7;0.72;1" dur="${dur(4.6)}" repeatCount="indefinite"/>`
     : ''
   const glitch = animated
-    ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;2.5 0;0 0;-2 0;0 0" keyTimes="0;0.45;0.47;0.5;0.86;0.88" calcMode="discrete" dur="5.8s" repeatCount="indefinite"/>`
+    ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 0;2.5 0;0 0;-2 0;0 0" keyTimes="0;0.45;0.47;0.5;0.86;0.88" calcMode="discrete" dur="${dur(5.8)}" repeatCount="indefinite"/>`
     : ''
   const sweep = animated
     ? `<rect x="8" y="4" width="76" height="3.5" fill="#ffffff" opacity="0.5"><animate attributeName="y" values="4;116" dur="3.4s" repeatCount="indefinite"/></rect>`
     : ''
   const breathe = animated
-    ? `<animate attributeName="opacity" values="0.26;0.38;0.26" dur="3.8s" repeatCount="indefinite"/>`
+    ? `<animate attributeName="opacity" values="${glow};${Number((glow + 0.12).toFixed(2))};${glow}" dur="3.8s" repeatCount="indefinite"/>`
+    : ''
+  // the emitter beats while she raises the alarm
+  const beat = animated && mood === 'alarm'
+    ? `<animate attributeName="rx" values="19;26;19" dur="0.9s" repeatCount="indefinite"/>`
     : ''
 
   // The figure, in a 90 x 132 cell with her feet at the emitter (y 122).
@@ -101,12 +131,12 @@ function hologram(p: Palette, ground: string, animated: boolean) {
   // framed image over the drawn figure, under the hologram's texture (fine
   // scan lines), a band of light that sweeps down it, and a faint flicker.
   // If the app won't draw an embedded picture, the figure beneath still shows.
-  const hasPortrait = PORTRAIT !== ''
+  const hasPortrait = picture !== ''
   const sheen = animated
     ? `<animate attributeName="y" values="-34;126" dur="9s" repeatCount="indefinite"/>`
     : ''
   const shimmer = animated
-    ? `<animate attributeName="opacity" values="1;0.9;1;1;0.82;1" keyTimes="0;0.3;0.33;0.7;0.72;1" dur="5.2s" repeatCount="indefinite"/>`
+    ? `<animate attributeName="opacity" values="1;0.9;1;1;0.82;1" keyTimes="0;0.3;0.33;0.7;0.72;1" dur="${dur(5.2)}" repeatCount="indefinite"/>`
     : ''
   const portraitDefs = hasPortrait
     ? `<clipPath id="frame"><rect x="4" y="8" width="82" height="114" rx="5"/></clipPath>` +
@@ -117,22 +147,26 @@ function hologram(p: Palette, ground: string, animated: boolean) {
   const portrait = hasPortrait
     ? `<g clip-path="url(#frame)">` +
       // the picture as colored cells, softened so the cells read as one image
-      `<g filter="url(#soften)">${PORTRAIT}${shimmer}</g>` +
+      `<g filter="url(#soften)">${picture}${shimmer}</g>` +
       `<rect x="4" y="8" width="82" height="114" fill="url(#weave)"/>` +
       `<rect x="4" y="${animated ? -34 : 40}" width="82" height="34" fill="url(#sheen)">${sheen}</rect>` +
       `</g>` +
-      `<rect x="4" y="8" width="82" height="114" rx="5" fill="none" stroke="${tint}" stroke-width="1.2" opacity="0.75" filter="url(#lamp)"/>`
+      `<rect x="4" y="8" width="82" height="114" rx="5" fill="none" stroke="${aura}" stroke-width="${mood === 'alarm' ? 2 : mood === 'warm' ? 1.6 : 1.2}" opacity="${mood === 'calm' ? 0.75 : 1}" filter="url(#lamp)"/>`
     : ''
+  // The drawn figure has no frame, so a mood other than calm brackets her cell.
+  const brackets = hasPortrait || mood === 'calm'
+    ? ''
+    : `<path d="M6 22V10H18M72 10H84V22M6 106V118H18M72 118H84V106" fill="none" stroke="${aura}" stroke-width="${mood === 'alarm' ? 2 : 1.4}" filter="url(#lamp)"/>`
 
   return {
     defs:
       portraitDefs +
-      `<linearGradient id="cone" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="${tint}" stop-opacity="0.9"/><stop offset="1" stop-color="${tint}" stop-opacity="0"/></linearGradient>` +
+      `<linearGradient id="cone" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="${aura}" stop-opacity="0.9"/><stop offset="1" stop-color="${aura}" stop-opacity="0"/></linearGradient>` +
       `<clipPath id="figure"><path d="${hair}"/>${face}${neck}${shoulders}</clipPath>` +
       `<clipPath id="skin">${face}${neck}</clipPath>` +
       `<pattern id="slice" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="1.8" fill="${tint}"/></pattern>`,
     body:
-      `<path d="M36 124L4 6h82L54 124z" fill="url(#cone)" opacity="0.26">${breathe}</path>` +
+      `<path d="M36 124L4 6h82L54 124z" fill="url(#cone)" opacity="${glow}">${breathe}</path>` +
       `<g>${glitch}<g filter="url(#lamp)">` +
       `<g clip-path="url(#figure)"><rect x="4" y="4" width="84" height="120" fill="url(#slice)" opacity="0.95">${flicker}</rect>${sweep}</g>` +
       `<g clip-path="url(#skin)"><rect x="30" y="20" width="30" height="46" fill="#ffffff" opacity="0.34"/></g>` +
@@ -143,7 +177,10 @@ function hologram(p: Palette, ground: string, animated: boolean) {
       `<path d="M42.5 47.5q2.5 1.8 5 0" fill="none" stroke="${ground}" stroke-width="1.3" stroke-linecap="round" opacity="0.8"/>` +
       portrait +
       `</g>` +
-      `<ellipse cx="45" cy="124" rx="19" ry="2.6" fill="${tint}" filter="url(#lamp)"/>`,
+      brackets +
+      (beat
+        ? `<ellipse cx="45" cy="124" rx="19" ry="2.6" fill="${aura}" filter="url(#lamp)">${beat}</ellipse>`
+        : `<ellipse cx="45" cy="124" rx="19" ry="2.6" fill="${aura}" filter="url(#lamp)"/>`),
   }
 }
 
@@ -152,9 +189,11 @@ const cache = new Map<string, string>()
 /**
  * The console's SVG. Readings are baked into the drawing, so it is rebuilt
  * when one changes: at the end of a turn, and as a limit's clock runs down.
+ * `picture` is the companion's portrait as SVG markup, or '' for the drawn
+ * figure: the mod's own unless a caller hands in another.
  */
-export function consoleSvg(id: PresetId, d: ConsoleData, animated = false): string {
-  const key = `${id}:${animated ? 'anim' : 'still'}:${JSON.stringify(d)}`
+export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, picture: string = PORTRAIT): string {
+  const key = `${id}:${animated ? 'anim' : 'still'}:${picture.length}:${JSON.stringify(d)}`
   const hit = cache.get(key)
   if (hit) return hit
   // Readings change through a session; don't keep every drawing ever made.
@@ -174,7 +213,9 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false): stri
     text(x, y, body, { size: 8, opacity: 0.55, weight: 500, ...s })
 
   // ── the companion's cell, or a small tracking grid when she is away ──────
-  const holo = d.hasCompanion ? hologram(p, d.ground, animated) : { defs: '', body: '' }
+  const holo = d.hasCompanion
+    ? hologram(p, d.ground, animated, moodOf(d.context, d.limits), picture)
+    : { defs: '', body: '' }
   const idle = d.hasCompanion
     ? ''
     : `<path d="M10 34H80M10 66H80M10 98H80M25 14V118M45 14V118M65 14V118" stroke="${p.hud.grid}" stroke-width="0.6" opacity="0.35"/>` +
