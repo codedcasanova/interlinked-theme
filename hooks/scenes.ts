@@ -164,9 +164,9 @@ const pick = <T,>(r: Rand, list: readonly T[]): T => list[Math.floor(r() * list.
 export const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).padStart(4, '0')
 
 /**
- * How much of a scene moves. `calm` holds still the parts that redraw the
- * whole window on every frame (the weather and the searchlights) and keeps
- * the rest moving.
+ * How much of a scene moves. `calm` holds the weather and the searchlights
+ * still, the parts that move across the whole window, and keeps the rest
+ * moving.
  */
 export type Motion = 'full' | 'calm' | 'off'
 
@@ -344,10 +344,9 @@ function megastructure(c: Ctx, cx: number, base: number, crown: number, h: numbe
 
 /**
  * A stack that vents a burst of flame, with the glow it throws on the smog.
- * The glow is a gradient that fades as a blurred disc would. It was a disc
- * put through a wide blur, which had to be blurred again on every frame of
- * the burn; the flame's own gradient already fades at its edge, so it takes
- * no filter either.
+ * The glow is a gradient that fades as a blurred disc would: it was a disc
+ * put through a wide blur filter, and the gradient needs none. The flame's
+ * own gradient already fades at its edge, so it takes no filter either.
  */
 function flareStack(c: Ctx, x: number, h: number, delay: number) {
   const { p } = c

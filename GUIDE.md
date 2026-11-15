@@ -41,13 +41,15 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 | Type this | What happens |
 | --- | --- |
 | `/theme-mod glass clear` | The city shows through the panels sharply, behind a veil just heavy enough to keep the words readable |
-| `/theme-mod glass frost` | The city is blurred behind the panels, so text is easier to read. The default |
+| `/theme-mod glass frost` | The city is blurred behind the panels. The default |
 | `/theme-mod glass solid` | No city at all. You keep the colors. The lightest on your computer |
 | `/theme-mod motion full` | Rain, lights and the hologram move, and Joi's row ticks. The default |
 | `/theme-mod motion calm` | The rain, the dust and the searchlights hold still. Signs, flying craft, the airship and the flames still move |
 | `/theme-mod motion off` | Everything holds still |
 
 `/theme-mod rain on` and `rain off` are the older names for `motion full` and `motion off`, and still work.
+
+Each look's glass is as heavy as its city needs for the words to stay readable. Amber Dust is the brightest city, so its `clear` and `frost` are about equally heavy and differ in how sharp the city looks.
 
 ### The strip above the prompt box
 
@@ -86,8 +88,8 @@ To turn the theme back on after `off`, type any look, such as `/theme-mod neon-n
 Left to right:
 
 - **Joi.** She says the most important thing about your session in one line, such as a limit running low. The light around her follows the fullest gauge: her own color while there is room, the gauge's warning color from 65 percent, and its alarm color from 85 percent, when she also flickers faster.
-- **Context.** How full Claude's memory for this conversation is. The bar shows what is filling it. The line under it shows how it has grown, with an estimate of the turns you have left.
-- **Plan limits.** How much of your 5-hour and weekly usage is gone. The small white marker shows how much of that time window has passed. A bar ahead of the marker means you are using it faster than the clock.
+- **Context.** How full Claude's memory for this conversation is. Beside the figure is an estimate of the turns you have left at the current rate. The bar shows what is filling it, with the biggest parts named under it. The line at the bottom shows how it has grown.
+- **Plan limits.** How much of your 5-hour and weekly usage is gone. The small white marker shows how much of that time window has passed. A bar ahead of the marker means you are using it faster than the clock, and the words beside the limit's name say so: ahead of pace, on pace or under pace. Under each bar is when it resets and how long is left.
 - **Tool calls per turn.** One bar for each recent turn. Red means a tool call failed.
 
 A gauge's color says how full it is, and red always means nearly out:
@@ -121,7 +123,7 @@ The plan limits and the chart are empty in a brand-new session. They fill in aft
 
 When your 5-hour or weekly limit passes 80 percent, Joi books one notification with the app for the moment that limit resets. It arrives as a normal desktop notification, with her name on it, and says the limit is open again. The app holds it, so it arrives even if the session has ended by then.
 
-There is one per limit, never a stream: a newer reading replaces the one already booked. `/theme-mod alerts off` and `/theme-mod off` both take it back. It follows your system's and the app's own notification settings. Only a session in the app books one: a terminal can't hold a notification for later, so a terminal session books none.
+There is one per limit, never a stream: a newer reading replaces the one already booked. `/theme-mod alerts off` and `/theme-mod off` both take it back. It follows your system's and the app's own notification settings. Only a session in the app books one: a terminal can't hold a notification for later, so a terminal session books none. `/theme-mod` says which kind this session is, on its `ALERTS` line.
 
 ## If something is off
 

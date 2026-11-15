@@ -524,7 +524,11 @@ async function statusText($: EngineInterface): Promise<string> {
     `HOLO   ${(await read($, isCompanionOn)) ? (await read($, companion)) : 'off'}`,
     `MOTION ${await read($, motion)}`,
     `STYLE  ${(await read($, isStyled)) ? 'on' : 'off'}`,
-    `ALERTS ${(await read($, isAlertsOn)) ? 'on' : 'off'}`,
+    `ALERTS ${(await read($, isAlertsOn)) ? 'on' : 'off'}${
+      (await holdsNotifications($).catch(() => false))
+        ? ''
+        : '  (this session can\'t hold a notification for later, so none is booked)'
+    }`,
     '',
     usage(),
   ].join('\n')

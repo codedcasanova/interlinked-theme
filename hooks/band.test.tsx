@@ -357,10 +357,13 @@ test('a limit running out books one notification for its reset, and alerts off t
   await run('neon-noir')
   expect(notes.length).toBe(4)
   await run('alerts off')
+  expect((await run('status')).text).toContain('ALERTS off\n')
   limits.surfaces = ['terminal', 'desktop']
   await run('alerts on')
   await $.session.measure({} as never)
   expect(notes.length).toBe(4)
+  // and the status says why
+  expect((await run('status')).text).toContain("ALERTS on  (this session can't hold a notification for later, so none is booked)")
 })
 
 test('an interrupted turn gets no stamp', async ($, on) => {

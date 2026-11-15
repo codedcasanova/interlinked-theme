@@ -21,12 +21,12 @@ Made on Claude Code 2.1.325 with Claude Desktop 5.11492.5, on Windows.
 - **Gauge colors are distinct in every look.** Amber Dust is olive, amber and red; Acid Rain is green, orange and red. Neon Noir is unchanged.
 - **Words.** The companion says "tool calls" and "failed", as the readouts do.
 
-### Lighter
+### Less work
 
 - A usage reading takes its figures from the event and writes only what changed. It used to fetch usage, the model and the folder, and write six values each time.
 - A tool call makes one state write, started while the tool runs. It made two before the tool could start.
 - With a portrait, the drawn figure is left out. It used to animate underneath.
-- The flare stacks' glow is a gradient. It was a disc put through a wide blur on every frame.
+- The flare stacks' glow is a gradient with no blur filter.
 - With the theme off, the mod's timer and readings do nothing.
 
 ### Under the hood

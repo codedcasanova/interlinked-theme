@@ -84,7 +84,7 @@ Your choices are remembered across sessions.
 - **Give her a face.** `python tools/make-portrait.py path/to/picture.png` redraws a picture as small colored cells and writes it into `hooks/portrait.ts`. It needs Pillow (`pip install pillow`). `--clear` goes back to the drawn figure. Use only a picture you have the right to use.
 - **Change the colors** in `hooks/looks.ts` (the app's palette) and `hooks/scenes.ts` (the city and the readouts).
 
-If the window feels heavy, try `/theme-mod motion calm`, which stops the three things that redraw the whole window on every frame (rain, dust and searchlights). `/theme-mod motion off` holds everything still, and `/theme-mod glass solid` removes the city.
+If the window feels heavy, try `/theme-mod motion calm`, which holds the rain, the dust and the searchlights still. `/theme-mod motion off` holds everything still, and `/theme-mod glass solid` removes the city.
 
 ## What the mod can do
 
@@ -114,7 +114,7 @@ claude plugin test .       # the test suite: no session or network needed
 claude --plugin-dir .      # load it for one terminal session, reloading on save
 ```
 
-To type-check it, load the mod once so that Claude Code writes its types into `.claude-plugin/types/` and a `tsconfig.json` beside them (both are in `.gitignore`), then run TypeScript 5.4 or later over the folder:
+To type-check it, start one session with `claude --plugin-dir .` first. Loading the mod that way makes Claude Code write its types into `.claude-plugin/types/` and a `tsconfig.json` beside them (both are in `.gitignore`). Then run TypeScript 5.4 or later over the folder:
 
 ```bash
 npx -p typescript tsc -p .

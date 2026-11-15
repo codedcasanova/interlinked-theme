@@ -17,9 +17,9 @@ export type Glass = 'clear' | 'frost' | 'solid'
 
 /**
  * How much moves: `full` is everything; `calm` holds the rain, the dust and
- * the searchlights still, the three that redraw the whole window on every
- * frame, and keeps the signs, the craft, the airship and the flames; `off`
- * holds everything still.
+ * the searchlights still, the three that move across the whole window, and
+ * keeps the signs, the craft, the airship and the flames; `off` holds
+ * everything still.
  */
 export type Motion = 'full' | 'calm' | 'off'
 

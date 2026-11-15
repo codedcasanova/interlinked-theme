@@ -101,6 +101,10 @@ test('nothing in the console leaves its cell, however long the readings', async 
   for (const head of ['CONTEXT', 'PLAN LIMITS', 'TOOL CALLS PER TURN']) {
     expect(new RegExp(`y="18"[^>]*>${head}<`).test(svg)).toBe(true)
   }
+  // one limit sits under the heading; a second closes on the foot
+  const one = consoleSvg('neon-noir', SAMPLE, false, '')
+  expect(/y="38"[^>]*>5-HOUR</.test(one)).toBe(true)
+  expect(/y="70"[^>]*>RESETS 00:30</.test(one)).toBe(true)
   // the legend names what fits and stops: the third part is in the bar only
   expect(svg.includes('>AGENTS 35%<')).toBe(true)
   expect(svg.includes('SKILLS')).toBe(false)

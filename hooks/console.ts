@@ -365,8 +365,8 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
   } else {
     limits += note(LX + LW, GRID.head, '▼ TIME GONE', { anchor: 'end' })
     rows.forEach((row, i) => {
-      // two rows, the second closing on the cells' shared foot
-      const y = GRID.foot - 42 - (rows.length - 1 - i) * 52
+      // from the top: one row sits under the heading, and a second closes on the cells' shared foot
+      const y = 28 + i * 52
       const pct = clamp(Math.round(row.percent), 0, 100)
       const color = level(p, pct)
       const lit = Math.round((20 * pct) / 100)
