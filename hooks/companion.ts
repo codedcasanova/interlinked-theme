@@ -22,7 +22,7 @@ export type Vitals = {
   now: number
 }
 
-export const DEFAULT_NAME = 'LUMEN'
+export const DEFAULT_NAME = 'JOI'
 
 /** A name fit for the readout: caps, letters, digits, spaces and hyphens, at most 16. */
 export function cleanName(raw: string): string {

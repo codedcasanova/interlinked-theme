@@ -176,7 +176,7 @@ test('the readout helpers format the way the console shows them', async () => {
   expect(parseLimits('not json')).toEqual([])
   expect(parseLimits('[{"kind":"seven_day","percentUsed":7},{"nope":1}]')).toEqual([{ kind: 'seven_day', percentUsed: 7 }])
   expect(cleanName('  vesper <b>9  ')).toBe('VESPER B9')
-  expect(cleanName('!!!')).toBe('LUMEN')
+  expect(cleanName('!!!')).toBe('JOI')
 })
 
 test('every look has colors the desktop will paint', async () => {
@@ -247,7 +247,7 @@ test('the band is the command console, with real readings and the companion', as
   expect(source.includes('LAST 2 TURNS · AVG 1')).toBe(true)
   expect(source.includes('1 FAILED')).toBe(true)
   // the companion greets by the clock and the session's own count
-  expect(await ui.find({ type: 'Text', text: /LUMEN/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /JOI/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Good evening. 3 turns in, context at 43 percent. All quiet.' })).toBeDefined()
   // the live row: uptime, folder and clock
   expect(await ui.find({ type: 'Text', text: '01:42   ' })).toBeDefined()
@@ -260,7 +260,7 @@ test('the band is the command console, with real readings and the companion', as
   expect(stored.band).toBe('rail')
   ui = await $.ui.mount(BAND as never)
   expect(((await ui.find({ type: 'Svg' })) as Drawn)?.props.height).toBe(26)
-  expect(await ui.find({ type: 'Text', text: /LUMEN/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /JOI/ })).toBeUndefined()
   await ui.unmount()
 
   await run('band scene')
