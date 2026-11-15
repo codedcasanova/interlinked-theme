@@ -40,6 +40,8 @@ type Row = {
   reading: number
   /** Stops the typing timer while one runs. */
   stopTyping: (() => void) | undefined
+  /** Counts the row's changes: a fresh state each time, so every one is drawn. */
+  changes: number
 }
 
 const rows = new Map<string, Row>()
@@ -81,19 +83,19 @@ const LiveRow: ClientModule<LiveRowProps, number> = (props, surface) => {
         target.stopTyping?.()
         target.stopTyping = undefined
       }
-      surface.setState(target.elapsed + target.shown)
+      surface.setState((target.changes += 1))
     })
   }
 
   if (surface.state === undefined || row === undefined) {
     // A new instance: start the clock once, and type the line from its start.
-    row = { line: props.line, shown: 0, base: props.now, elapsed: 0, reading: props.now, stopTyping: undefined }
+    row = { line: props.line, shown: 0, base: props.now, elapsed: 0, reading: props.now, stopTyping: undefined, changes: 0 }
     rows.set(props.id, row)
     const mounted = row
     surface.setState(0)
     surface.every(1000, () => {
       mounted.elapsed += 1000
-      surface.setState(mounted.elapsed + mounted.shown)
+      surface.setState((mounted.changes += 1))
     })
     type(mounted)
   } else {

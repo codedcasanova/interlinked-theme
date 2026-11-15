@@ -91,7 +91,7 @@ While Claude works, the line in the conversation starts with what it is doing: `
 
 Under the gauges, Joi's line is typed out as she says it. At the right of that row is the time to the second and, while Claude works, `TURN` with how long the turn has run so far.
 
-The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the date.
+The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the date. With Joi hidden, or a band other than the console, the bottom row shows the time as well.
 
 With `/theme-mod rain off` the row holds still too: her line appears whole, and the clock moves to the bottom row and shows minutes.
 

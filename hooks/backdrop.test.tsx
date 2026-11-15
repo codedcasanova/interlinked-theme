@@ -370,6 +370,8 @@ test('while Claude works, the companion says so and the state reads ACTIVE', asy
 
 test('the live row types her line, counts seconds, and holds still with motion off', async ($, on) => {
   world(on)
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.start', (_, e) => ({ turnId: (e as { turnId: string }).turnId }))
   await $.session.start(START)
   const GREETING = 'Good evening. 3 turns in, context at 43 percent. All quiet.'
 
@@ -393,13 +395,25 @@ test('the live row types her line, counts seconds, and holds still with motion o
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: GREETING, ...LIVE })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '21:17:03', ...LIVE })).toBeDefined()
+
+  // a new thought is typed from its start
+  await $.turn.start({ turnId: 't1', text: 'go' } as never)
+  await ui.redraw({ ...BAND.props, isWorking: true } as never)
+  expect(await ui.find({ type: 'Text', text: 'Working on it.', ...LIVE })).toBeUndefined()
+  await advance(ui, 400)
+  expect(await ui.find({ type: 'Text', text: 'Working on it.', ...LIVE })).toBeDefined()
+  // the same thought with a new count is swapped whole, with no typing
+  await ($ as unknown as Loose).tool.call({ tool: 'Bash', command: 'ls' } as never)
+  await ui.redraw({ ...BAND.props, isWorking: true } as never)
+  expect(await ui.find({ type: 'Text', text: 'Working on it. 1 operation so far this turn.', ...LIVE })).toBeDefined()
   await ui.unmount()
 
   // motion off: the same words as plain text, the whole clock below, nothing ticking
   await $.command.run({ command: 'theme-mod', args: 'rain off' } as never)
   ui = await $.ui.mount(BAND as never)
   expect(await ui.find({ type: 'Client' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: GREETING })).toBeDefined()
+  // (one more turn has begun since the greeting above)
+  expect(await ui.find({ type: 'Text', text: 'Good evening. 4 turns in, context at 43 percent. All quiet.' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '21:17  FRI 13 NOV' })).toBeDefined()
   await ui.unmount()
 
