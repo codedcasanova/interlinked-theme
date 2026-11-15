@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0
+## 1.1.0: 15 November 2026
 
 Made on Claude Code 2.1.325 with Claude Desktop 5.11492.5, on Windows.
 

@@ -6,6 +6,20 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
 
 **New here?** [GUIDE.md](GUIDE.md) explains every command and how to read the console, in plain words.
 
+## New on 15 November 2026 (version 1.1.0)
+
+- **The working line says what Claude is doing.** It leads with `UPLINK`, `REASONING`, `OPERATING` or `COMPOSING`, then the app's own words.
+- **Joi has moods.** The light around her takes the color of the fullest gauge, and she flickers faster as it nears full.
+- **Joi's row is live.** Her line is typed out, beside a clock that counts seconds and a timer for the running turn.
+- **Tool cards say what happened.** A finished call shows how long it ran and what came back: lines of output, lines read, lines added and removed, files and matches found.
+- **A notification when a limit resets.** When a plan limit passes 80 percent, one desktop notification is booked for the moment it resets. `/theme-mod alerts on|off`.
+- **Three motion levels.** `/theme-mod motion full|calm|off`. `calm` holds the rain, the dust and the searchlights still and keeps the rest moving.
+- **A steadier, clearer console.** Its gauges hold their figures while a turn runs, so the animation is never interrupted. The layout sits on one grid, the small print is larger, and no text runs past its cell.
+- **Readable glass.** Each look's glass is as heavy as its city needs for the words to stay readable, and Amber Dust's sun sits out from under the conversation.
+- **Gauge colors you can tell apart in every look.** Olive, amber and red in Amber Dust; green, orange and red in Acid Rain.
+
+[CHANGELOG.md](CHANGELOG.md) has the full list, including what the theme now does less of in the background.
+
 ## What you get
 
 - **The app's own colors.** Blue-black surfaces, warm paper-white type and cyan controls, with code highlighted in the same neon set.
