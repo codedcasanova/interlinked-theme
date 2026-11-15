@@ -16,7 +16,7 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
   - **Tool calls per turn:** one bar per recent turn, with failed calls in red.
   - A row of counters with session uptime and the date.
 - **A hologram companion, Joi.** She stands in the console and says one useful line at a time: context nearly full, a limit running out, a tool call that failed. Her line is typed out as she says it, beside a clock that counts seconds and a timer for the turn that is running. The light around her turns the color of a gauge that is filling up, and she flickers faster as it nears full.
-- **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls, a lead on the working line that says what Claude is doing, and a stamp under each answer with its time and usage.
+- **A restyled conversation.** Tags on your messages and Claude's, numbered cards on tool calls that say how long each ran and what came back, a lead on the working line that says what Claude is doing, and a stamp under each answer with its time and usage.
 - **A control deck.** A side panel with a button for every option.
 
 ![The command console with sample readings](docs/console.svg)
@@ -90,6 +90,7 @@ If the window feels heavy, `/theme-mod glass solid` or `/theme-mod rain off` lig
 A mod runs inside Claude Code with your permissions, so check one before you install it. This one:
 
 - reads your session's usage, model, working folder and turn count, and counts tool calls in the transcript, to draw its readouts
+- times each tool call and reads its result as the app shows it, to put a line count or a count of changes on its card
 - stores your theme choices in the mod's own settings file
 - draws in the interface and adds the `/theme-mod` command
 
@@ -111,7 +112,7 @@ claude plugin test .       # the test suite: no session or network needed
 claude --plugin-dir .      # load it for one terminal session, reloading on save
 ```
 
-The scenes are generated from a seeded random number generator in `hooks/scenes.ts`, so every build of a look is identical. `hooks/console.ts` draws the console, `hooks/companion.ts` decides what the companion says, `hooks/live-row.tsx` types her line and runs the clock on the app's own frame clock, and `hooks/register.tsx` wires them to Claude Code's events.
+The scenes are generated from a seeded random number generator in `hooks/scenes.ts`, so every build of a look is identical. `hooks/console.ts` draws the console, `hooks/companion.ts` decides what the companion says, `hooks/live-row.tsx` types her line and runs the clock on the app's own frame clock, `hooks/tools.ts` reads the facts on a tool call's card, and `hooks/register.tsx` wires them to Claude Code's events.
 
 ## About
 

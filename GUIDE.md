@@ -87,15 +87,22 @@ Left to right:
 
 Colors mean the same thing everywhere: cyan is fine, amber is filling up, red is nearly out.
 
-While Claude works, the line in the conversation starts with what it is doing: `UPLINK` (sending the request), `REASONING` (thinking), `OPERATING` (running a tool) or `COMPOSING` (writing the reply).
-
 Under the gauges, Joi's line is typed out as she says it. At the right of that row is the time to the second and, while Claude works, `TURN` with how long the turn has run so far.
 
 The bottom row counts tool calls, turns, the length of the last turn, failures, and how long the session has run, next to the date. With Joi hidden, or a band other than the console, the bottom row shows the time as well.
 
-With `/theme-mod rain off` the row holds still too: her line appears whole, and the clock moves to the bottom row and shows minutes.
+With `/theme-mod rain off` Joi's row holds still too: her line appears whole, and the clock moves to the bottom row and shows minutes.
 
 The plan limits and the chart are empty in a brand-new session. They fill in after Claude's first reply.
+
+## Reading the conversation
+
+- **The working line.** While Claude works, the line starts with what it is doing: `UPLINK` (sending the request), `REASONING` (thinking), `OPERATING` (running a tool) or `COMPOSING` (writing the reply).
+- **Tool cards.** Each tool call sits in a card. Its top line has the tool, the call's number in the session and its state. Once the call is over it adds how long it ran and what came back: lines of output for a command, lines read from a file, lines added and removed by an edit (`+12 −3`), or files and matches found by a search.
+- **Folded calls.** When the app folds several calls into one line, that line gets one card with the count by tool.
+- **The stamp.** Under each answer: how long the turn took, how many tool calls it made, and the context used.
+
+`/theme-mod style off` removes all of these.
 
 ## If something is off
 

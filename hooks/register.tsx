@@ -21,6 +21,7 @@ import type { LiveRowProps } from './live-row'
 import { LOOKS } from './looks'
 import { PRESETS, PRESET_IDS, isPresetId, railSvg, sceneSvg } from './scenes'
 import type { PresetId } from './scenes'
+import { durationLabel, groupTally, toolFacts, toolLabel } from './tools'
 
 const COMMAND = 'theme-mod'
 const DECK = 'noir-scene'
@@ -188,6 +189,18 @@ async function backfill($: EngineInterface): Promise<void> {
  */
 let seq = 0
 const opIndex = new Map<string, number>()
+/** How long each finished call ran, in ms, by call id, for the cards. Module state, as above. */
+const opMs = new Map<string, number>()
+const OPS_KEPT = 600
+
+/** Sets a call's entry and drops the oldest once the map is full. */
+function keep(map: Map<string, number>, id: string, value: number): void {
+  map.set(id, value)
+  if (map.size > OPS_KEPT) {
+    const oldest = map.keys().next().value
+    if (oldest !== undefined) map.delete(oldest)
+  }
+}
 /** Set once an app asks this mod to draw its scene, which proves it draws backdrops. */
 let hasDrawnScene = false
 
@@ -197,10 +210,6 @@ const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).p
 const isBand = (v: unknown): v is Band => BANDS.includes(v as Band)
 const isGlass = (v: unknown): v is Glass => GLASSES.includes(v as Glass)
 const isOnOff = (v: string): v is 'on' | 'off' => v === 'on' || v === 'off'
-
-/** A tool's name for a card: an MCP tool's last part, in caps. */
-const toolLabel = (tool: string) =>
-  (tool.startsWith('mcp__') ? tool.split('__').pop() ?? tool : tool).toUpperCase().slice(0, 28)
 
 /** What the working line leads with, by what the turn is doing. A mode not listed gets no lead. */
 const WORKING_LEADS: Record<string, string> = {
@@ -565,18 +574,20 @@ export const register: Register = on => {
     seq += 1
     const n = seq
     // Read through plain shapes: the union of every connected tool is too deep to narrow.
-    opIndex.set((e as { tool_use_id: string }).tool_use_id, n)
-    if (opIndex.size > 600) {
-      const oldest = opIndex.keys().next().value
-      if (oldest !== undefined) opIndex.delete(oldest)
-    }
+    const callId = (e as { tool_use_id: string }).tool_use_id
+    keep(opIndex, callId, n)
     try {
       await update($, ops, () => n)
       await update($, turnOps, count => count + 1)
     } catch {
       // A readout must never cost a tool call.
     }
+    // Timed here and not with $.clock, which would add two dispatches to every call.
+    const began = Date.now()
     const result = await next(e)
+    // The row is drawn with its result only after this hook returns, so the
+    // card finds the time here when it needs it.
+    keep(opMs, callId, Date.now() - began)
     try {
       if ((result as { isError?: boolean }).isError === true) {
         turnFaults += 1
@@ -859,6 +870,14 @@ export const register: Register = on => {
           ? [hud.secondary, 'RUNNING']
           : [hud.primary, 'DONE']
     const n = opIndex.get(e.requestId)
+    // Once the call is over: how long it ran, and what its result amounts to.
+    const ms = e.props.isRunning ? undefined : opMs.get(e.requestId)
+    const facts = e.props.isRunning
+      ? []
+      : [
+          ...(ms === undefined ? [] : [durationLabel(ms)]),
+          ...(e.props.isErrored || e.props.isInterrupted ? [] : toolFacts(e.props.tool, e.props.output)),
+        ]
     const { Box, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>
@@ -866,6 +885,37 @@ export const register: Register = on => {
           <Text color={edge} weight="bold">◤ {toolLabel(e.props.tool)}</Text>
           {n === undefined ? null : <Text color={hud.primary} dimColor>{'  #'}{pad4(n)}</Text>}
           <Text color={edge}>{'  '}{state}</Text>
+          {facts.length === 0 ? null : (
+            <Text color={hud.primary} dimColor>{'  ·  '}{facts.join('  ·  ')}</Text>
+          )}
+        </Text>
+        {await next(e)}
+      </Box>
+    )
+  })
+
+  // A run of calls the app folds into one line: the same card, with the
+  // count by tool. Unfolded, each call is a row with a card of its own.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    if (e.surface !== 'desktop' || e.props.isExpanded || e.props.calls.length === 0) return next(e)
+    const id = await styledPreset($)
+    if (!id) return next(e)
+    const hud = PRESETS[id].hud
+    const calls = e.props.calls
+    const failed = calls.filter(call => call.isErrored).length
+    const isRunning = e.props.isActive || calls.some(call => call.isRunning)
+    const [edge, state] = failed > 0
+      ? [hud.alert, `${failed} FAILED`]
+      : isRunning
+        ? [hud.secondary, 'RUNNING']
+        : [hud.primary, 'DONE']
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor={edge} paddingX={1}>
+        <Text mono size="caption" wrap="truncate">
+          <Text color={edge} weight="bold">◤ {calls.length} OPERATION{calls.length === 1 ? '' : 'S'}</Text>
+          <Text color={edge}>{'  '}{state}</Text>
+          <Text color={hud.primary} dimColor>{'  ·  '}{groupTally(calls.map(call => call.tool))}</Text>
         </Text>
         {await next(e)}
       </Box>

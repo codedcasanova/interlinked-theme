@@ -7,6 +7,7 @@ import { secondsLabel, turnLabel } from './live-row'
 import type { ConsoleData } from './console'
 import { LOOKS } from './looks'
 import { PRESET_IDS, railSvg, sceneSvg } from './scenes'
+import { durationLabel, groupTally, toolFacts, toolLabel } from './tools'
 
 const MOD = 'interlinked-theme'
 /** Friday 13 November 2026, 21:17 Pacific. */
@@ -473,14 +474,102 @@ test('the readouts count real tool calls and turns', async ($, on) => {
   // the second call's card carries its operation number and keeps the app's row
   const card = await $.ui.mount({
     plugin: MOD, component: 'ToolUse', requestId: lastId, surface: 'desktop',
-    props: { tool: 'Read', input: {}, isRunning: false, isErrored: false, isInterrupted: false },
+    props: {
+      tool: 'Read', input: {}, isRunning: false, isErrored: false, isInterrupted: false,
+      output: { type: 'text', file: { filePath: 'README.md', content: '', numLines: 40, startLine: 1, totalLines: 120 } },
+    },
   } as never)
   expect(((await card.find({ type: 'Box' })) as Drawn)?.props.borderStyle).toBe('round')
   expect(await card.find({ type: 'Text', text: /READ/ })).toBeDefined()
   expect(await card.find({ type: 'Text', text: /#0002/ })).toBeDefined()
   expect(await card.find({ type: 'Text', text: /DONE/ })).toBeDefined()
+  // how long the call ran, then what its result amounts to
+  expect(await card.find({ type: 'Text', text: /^  ·  \d+ms  ·  40 OF 120 LINES$/ })).toBeDefined()
   expect(await card.keepsBeneath()).toBe(true)
   await card.unmount()
+
+  // a failed call keeps its time and says nothing about a result it doesn't have
+  const failed = await $.ui.mount({
+    plugin: MOD, component: 'ToolUse', requestId: lastId, surface: 'desktop',
+    props: { tool: 'Read', input: {}, isRunning: false, isErrored: true, isInterrupted: false, output: 'no such file' },
+  } as never)
+  expect(await failed.find({ type: 'Text', text: /FAILED/ })).toBeDefined()
+  expect(await failed.find({ type: 'Text', text: /^  ·  \d+ms$/ })).toBeDefined()
+  await failed.unmount()
+})
+
+test('a card reads a few facts off the tool result, and nothing off one it does not know', async () => {
+  expect(toolFacts('Bash', { stdout: 'a\nb\nc\n\n', stderr: 'warn\n', interrupted: false })).toEqual(['4 LINES'])
+  expect(toolFacts('Bash', { stdout: '', stderr: '', interrupted: false })).toEqual(['NO OUTPUT'])
+  expect(toolFacts('PowerShell', { stdout: 'one', stderr: '', interrupted: false })).toEqual(['1 LINE'])
+  expect(toolFacts('Bash', { stdout: '', stderr: '', backgroundTaskId: 'b1' })).toEqual(['IN BACKGROUND'])
+  expect(toolFacts('Bash', { stdout: 'x', stderr: '', timedOutAfterMs: 120000 })).toEqual(['TIMED OUT', '1 LINE'])
+  expect(toolFacts('Read', { type: 'text', file: { numLines: 40, totalLines: 40 } })).toEqual(['40 LINES'])
+  expect(toolFacts('Read', { type: 'text', file: { numLines: 40, totalLines: 120 } })).toEqual(['40 OF 120 LINES'])
+  expect(toolFacts('Read', { type: 'image', file: {} })).toEqual(['IMAGE'])
+  const patch = [{ lines: [' same', '+new', '+newer', '-old'] }, { lines: ['+more'] }]
+  expect(toolFacts('Edit', { filePath: 'a.ts', structuredPatch: patch })).toEqual(['+3 −1'])
+  expect(toolFacts('Write', { type: 'update', structuredPatch: patch })).toEqual(['+3 −1'])
+  expect(toolFacts('Write', { type: 'create', content: 'a\nb\n', structuredPatch: [] })).toEqual(['NEW FILE', '2 LINES'])
+  expect(toolFacts('Grep', { mode: 'files_with_matches', numFiles: 3, filenames: [] })).toEqual(['3 FILES'])
+  expect(toolFacts('Grep', { mode: 'content', numFiles: 2, numLines: 9 })).toEqual(['9 LINES', '2 FILES'])
+  expect(toolFacts('Grep', { mode: 'count', numFiles: 1, numMatches: 1 })).toEqual(['1 MATCH', '1 FILE'])
+  expect(toolFacts('Grep', { numFiles: 0, filenames: [] })).toEqual(['NO MATCHES'])
+  expect(toolFacts('Glob', { numFiles: 100, truncated: true })).toEqual(['100 FILES+'])
+  expect(toolFacts('Glob', { numFiles: 0, truncated: false })).toEqual(['NO FILES'])
+  expect(toolFacts('WebFetch', { code: 200, bytes: 5120 })).toEqual(['HTTP 200'])
+  // an unknown tool, an error's text, a result still to come, a shape from another build
+  expect(toolFacts('mcp__github__create_issue', { id: 7 })).toEqual([])
+  expect(toolFacts('Bash', 'command not found')).toEqual([])
+  expect(toolFacts('Read', undefined)).toEqual([])
+  expect(toolFacts('Read', { type: 'text' })).toEqual([])
+  expect(toolFacts('Edit', { structuredPatch: 'nope' })).toEqual([])
+
+  expect(durationLabel(340)).toBe('340ms')
+  expect(durationLabel(1234)).toBe('1.2s')
+  expect(durationLabel(42_400)).toBe('42s')
+  expect(durationLabel(125_000)).toBe('2m 05s')
+  expect(toolLabel('mcp__github__create_issue')).toBe('CREATE_ISSUE')
+  expect(groupTally(['Read', 'Grep', 'Read', 'Glob', 'Read', 'Grep'])).toBe('3 READ  ·  2 GREP  ·  1 GLOB')
+  expect(groupTally(['Read', 'Grep', 'Glob', 'Bash', 'Bash', 'WebFetch'])).toBe('2 BASH  ·  1 READ  ·  1 GREP  ·  +2 MORE')
+})
+
+test('a folded run of calls gets one card with the count by tool', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  const call = (tool: string, isErrored = false, isRunning = false) => ({
+    tool, input: {}, isRunning, isErrored, isInterrupted: false,
+  })
+  const group = (calls: unknown[], isExpanded = false, isActive = false) => ({
+    plugin: MOD, component: 'ToolGroup', requestId: 'g1', surface: 'desktop',
+    props: { calls, isActive, isExpanded },
+  })
+
+  let ui = await $.ui.mount(group([call('Read'), call('Read'), call('Grep')]) as never)
+  expect(((await ui.find({ type: 'Box' })) as Drawn)?.props.borderStyle).toBe('round')
+  expect(await ui.find({ type: 'Text', text: '◤ 3 OPERATIONS' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '  DONE' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '  ·  2 READ  ·  1 GREP' })).toBeDefined()
+  expect(await ui.keepsBeneath()).toBe(true)
+  await ui.unmount()
+
+  // failures outrank a call still running
+  ui = await $.ui.mount(group([call('Read', true), call('Grep', false, true)], false, true) as never)
+  expect(await ui.find({ type: 'Text', text: '  1 FAILED' })).toBeDefined()
+  await ui.unmount()
+  ui = await $.ui.mount(group([call('Glob', false, true)], false, true) as never)
+  expect(await ui.find({ type: 'Text', text: '◤ 1 OPERATION' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '  RUNNING' })).toBeDefined()
+  await ui.unmount()
+
+  // unfolded, each call is a row with a card of its own; style off leaves the line alone
+  ui = await $.ui.mount(group([call('Read'), call('Grep')], true) as never)
+  expect(await ui.find({ type: 'Text', text: /OPERATION/ })).toBeUndefined()
+  await ui.unmount()
+  await $.command.run({ command: 'theme-mod', args: 'style off' } as never)
+  ui = await $.ui.mount(group([call('Read'), call('Grep')]) as never)
+  expect(await ui.find({ type: 'Text', text: /OPERATION/ })).toBeUndefined()
+  await ui.unmount()
 })
 
 test('an interrupted turn gets no stamp', async ($, on) => {
@@ -523,6 +612,8 @@ test('rows get their tags, keep the app drawing, and style off leaves them alone
   ui = await $.ui.mount(tool as never)
   expect(await ui.find({ type: 'Text', text: /CREATE_ISSUE/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /RUNNING/ })).toBeDefined()
+  // a call still running has no time and no result to speak of
+  expect(await ui.find({ type: 'Text', text: /  ·  / })).toBeUndefined()
   await ui.unmount()
 
   await $.command.run({ command: 'theme-mod', args: 'style off' } as never)
