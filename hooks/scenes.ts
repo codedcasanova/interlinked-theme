@@ -313,7 +313,13 @@ function megastructure(c: Ctx, cx: number, base: number, crown: number, h: numbe
   )
 }
 
-/** A stack that vents a burst of flame, with the glow it throws on the smog. */
+/**
+ * A stack that vents a burst of flame, with the glow it throws on the smog.
+ * The glow is a gradient that fades as a blurred disc would. It was a disc
+ * put through a wide blur, which had to be blurred again on every frame of
+ * the burn; the flame's own gradient already fades at its edge, so it takes
+ * no filter either.
+ */
 function flareStack(c: Ctx, x: number, h: number, delay: number) {
   const { p } = c
   const top = H - h
@@ -323,8 +329,8 @@ function flareStack(c: Ctx, x: number, h: number, delay: number) {
   return (
     `<rect x="${x - 7}" y="${top}" width="14" height="${h}" fill="${p.mega}"/>` +
     `<rect x="${x - 11}" y="${top}" width="22" height="8" fill="${p.mega}"/>` +
-    `<circle cx="${x}" cy="${top - 40}" r="120" fill="${p.flame}" opacity="${c.animated ? 0 : 0.16}" filter="url(#soft)">${burn('opacity', '0;0.3;0.22;0.3;0;0')}</circle>` +
-    `<ellipse cx="${x}" cy="${top - 34}" rx="15" ry="${c.animated ? 6 : 40}" fill="url(#flame)" opacity="${c.animated ? 0 : 0.9}" filter="url(#glow)">` +
+    `<circle cx="${x}" cy="${top - 40}" r="185" fill="url(#smog)" opacity="${c.animated ? 0 : 0.16}">${burn('opacity', '0;0.3;0.22;0.3;0;0')}</circle>` +
+    `<ellipse cx="${x}" cy="${top - 34}" rx="17" ry="${c.animated ? 6 : 40}" fill="url(#flame)" opacity="${c.animated ? 0 : 0.9}">` +
     burn('ry', '6;58;40;66;10;6') +
     burn('cy', `${top - 8};${top - 56};${top - 40};${top - 64};${top - 12};${top - 8}`) +
     burn('opacity', '0;1;0.85;1;0;0') +
@@ -648,6 +654,12 @@ export function sceneSvg(id: PresetId, view: View = 'full', animated = false): s
     `</linearGradient>` +
     `<radialGradient id="flame" cx="0.5" cy="0.75" r="0.6">` +
     `<stop offset="0" stop-color="#fff6d8"/><stop offset="0.45" stop-color="${p.flame}"/><stop offset="1" stop-color="${p.flame}" stop-opacity="0"/>` +
+    `</radialGradient>` +
+    // a disc of 120 under a 28px blur, as a gradient: full to 70, half at 120, gone by 185
+    `<radialGradient id="smog">` +
+    `<stop offset="0" stop-color="${p.flame}"/><stop offset="0.38" stop-color="${p.flame}" stop-opacity="0.97"/>` +
+    `<stop offset="0.65" stop-color="${p.flame}" stop-opacity="0.5"/><stop offset="0.82" stop-color="${p.flame}" stop-opacity="0.13"/>` +
+    `<stop offset="1" stop-color="${p.flame}" stop-opacity="0"/>` +
     `</radialGradient>` +
     `<radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75">` +
     `<stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.65"/>` +
