@@ -26,7 +26,7 @@ Three looks ship with it: **Neon Noir** (the default), **Amber Dust** and **Acid
 ## Requirements
 
 - The Claude desktop app, with a local session in the Code tab.
-- Claude Code **2.1.325 or later** inside the app. Type `/status` in a session to check, and update the desktop app if yours is older.
+- Claude Code **2.1.325 or later** inside the app. Type `/status` in a session to check, and update the desktop app if yours is older. On an older build the theme says so once when a session starts.
 
 The terminal and editor extensions draw no look, so the theme does nothing visible there. It was built and checked on Windows with Claude Desktop 5.11492.5. Mods are an early-access part of Claude Code, so a later release may change something this theme relies on.
 
@@ -114,7 +114,27 @@ claude plugin test .       # the test suite: no session or network needed
 claude --plugin-dir .      # load it for one terminal session, reloading on save
 ```
 
-The scenes are generated from a seeded random number generator in `hooks/scenes.ts`, so every build of a look is identical. `hooks/console.ts` draws the console, `hooks/companion.ts` decides what the companion says, `hooks/live-row.tsx` types her line and runs the clock on the app's own frame clock, `hooks/tools.ts` reads the facts on a tool call's card, and `hooks/register.tsx` wires them to Claude Code's events.
+To type-check it, load the mod once so that Claude Code writes its types into `.claude-plugin/types/` and a `tsconfig.json` beside them (both are in `.gitignore`), then run TypeScript 5.4 or later over the folder:
+
+```bash
+npx -p typescript tsc -p .
+```
+
+Where things are, all under `hooks/`:
+
+| File | What it holds |
+| --- | --- |
+| `register.tsx` | The hooks: it reads the session and wires everything below to Claude Code's events |
+| `scenes.ts` | The city, drawn from a seeded random number generator, so every build of a look is identical |
+| `console.ts` | The console's drawing |
+| `companion.ts` | What the companion says, and which notifications to book |
+| `live-row.tsx` | Her typed line, the seconds clock and the turn timer, on the app's own frame clock |
+| `readings.ts` | How a turn, the context and a plan limit are stored, read back and worded |
+| `tools.ts` | The facts on a tool call's card |
+| `looks.ts` | Each look's app palette and how heavy its glass is |
+| `*.test.tsx`, `test-world.ts` | The tests, by subject, and what they share |
+
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
 
 ## About
 

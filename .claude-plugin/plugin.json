@@ -1,6 +1,6 @@
 {
   "name": "interlinked-theme",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Interlinked: a retro-future noir look for the Claude desktop app. The app's own colors, a moving city behind the conversation, a command console with live session gauges and a hologram companion above the prompt, readout tags and cards on the conversation, and a control deck. /theme-mod switches looks and options.",
   "types": "./types/index.d.ts",
   "author": {
