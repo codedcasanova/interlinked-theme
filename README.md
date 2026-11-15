@@ -4,6 +4,8 @@ A retro-future noir theme for the Claude desktop app's Code tab. It is a Claude 
 
 ![The city backdrop: megastructures, an airship and neon signs in the rain](docs/city.svg)
 
+**New here?** [GUIDE.md](GUIDE.md) explains every command and how to read the console, in plain words.
+
 ## What you get
 
 - **The app's own colors.** Blue-black surfaces, warm paper-white type and cyan controls, with code highlighted in the same neon set.
