@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { cleanName, clockLabel, companionLine, limitLabel, parseLimits, resetAlerts, uptimeLabel } from './companion'
 import type { Limit, Vitals } from './companion'
-import { consoleSvg, moodOf, tokenLabel, turnsOfRoom } from './console'
+import { consoleSvg, moodOf, textWidth, tokenLabel, turnsOfRoom } from './console'
 import { secondsLabel, turnLabel } from './live-row'
 import type { ConsoleData } from './console'
 import { LOOKS } from './looks'
@@ -164,11 +164,13 @@ test('the console draws its readings in plain words', async () => {
   expect(svg.includes('643K OF 1M TOKENS')).toBe(true)
   expect(svg.includes('MESSAGES 58%')).toBe(true)
   expect(svg.includes('ABOUT 6 TURNS OF ROOM')).toBe(true)
-  // the limit: used against time gone, and when it resets
+  // the limit: used against time gone, when it resets, and how long is left
   expect(svg.includes('>80%<')).toBe(true)
-  expect(svg.includes('RESETS 00:30 · 2H 55M LEFT · AHEAD OF PACE')).toBe(true)
+  expect(svg.includes('>· AHEAD OF PACE<')).toBe(true)
+  expect(svg.includes('>RESETS 00:30<')).toBe(true)
+  expect(svg.includes('>2H 55M LEFT<')).toBe(true)
   // the chart: the turns it covers and the failures in them
-  expect(svg.includes('LAST 3 TURNS · AVG 7')).toBe(true)
+  expect(svg.includes('3 TURNS · AVG 7')).toBe(true)
   expect(svg.includes('2 FAILED')).toBe(true)
   // the companion stands in her cell, and can step out. (The picture is
   // named here: a copy of the mod that carries a portrait draws no figure.)
@@ -180,6 +182,51 @@ test('the console draws its readings in plain words', async () => {
   expect(empty.includes('NO TURNS RECORDED YET')).toBe(true)
   expect(tokenLabel(1_200_000)).toBe('1.2M')
   expect(turnsOfRoom([50, 50, 50])).toBeUndefined()
+})
+
+test('nothing in the console leaves its cell, however long the readings', async () => {
+  // the longest strings each cell can hold
+  const worst: ConsoleData = {
+    ...SAMPLE,
+    context: 100, tokens: 1_000_000,
+    parts: [{ name: 'Messages', tokens: 400_000 }, { name: 'Custom agents', tokens: 350_000 }, { name: 'Skills and more', tokens: 250_000 }],
+    trend: Array.from({ length: 24 }, (_, i) => 40 + i * 2.6),
+    limits: [
+      { name: '5-HOUR', percent: 100, elapsed: 0.05, resets: 'WED 23:59', left: '6D 23H' },
+      { name: 'SPEND LIMIT', percent: 100, elapsed: 0.05, resets: 'WED 23:59', left: '6D 23H' },
+    ],
+    turns: Array.from({ length: 24 }, () => ({ ops: 164, faults: 9 })),
+  }
+  const CELLS = [[106, 332], [352, 550], [570, 742]] as const
+  const TEXT = /<text x="([\d.]+)" y="[\d.]+" font-size="([\d.]+)"[^>]*text-anchor="(start|end)"[^>]*?(?: textLength="(\d+)")?[^>]*>([^<]*)</g
+  for (const id of PRESET_IDS) {
+    for (const data of [SAMPLE, worst]) {
+      let count = 0
+      for (const [, x, size, anchor, squeezed, body] of consoleSvg(id, data, false, '').matchAll(TEXT)) {
+        // a squeezed line is exactly as wide as it was told to be
+        const width = squeezed === undefined ? textWidth(body!.replace(/&amp;/g, '&'), Number(size)) : Number(squeezed)
+        const from = anchor === 'end' ? Number(x) - width : Number(x)
+        const cell = CELLS.find(([left, right]) => from >= left - 0.5 && from <= right)
+        expect(cell).toBeDefined()
+        expect(from + width <= cell![1] + 0.5).toBe(true)
+        count += 1
+      }
+      expect(count > 12).toBe(true)
+    }
+  }
+  // the cells' closing notes share one baseline, and their headings another
+  const svg = consoleSvg('neon-noir', worst, false, '')
+  for (const foot of ['CONTEXT OVER THE LAST 24 TURNS', 'RESETS WED 23:59', '24 TURNS · AVG 164']) {
+    expect(new RegExp(`y="122"[^>]*>${foot}<`).test(svg)).toBe(true)
+  }
+  for (const head of ['CONTEXT', 'PLAN LIMITS', 'TOOL CALLS PER TURN']) {
+    expect(new RegExp(`y="18"[^>]*>${head}<`).test(svg)).toBe(true)
+  }
+  // the legend names what fits and stops: the third part is in the bar only
+  expect(svg.includes('>AGENTS 35%<')).toBe(true)
+  expect(svg.includes('SKILLS')).toBe(false)
+  // the small print is 9px at 72 percent or more
+  expect(/font-size="8"|fill-opacity="0\.(4|5)\d*"/.test(svg)).toBe(false)
 })
 
 test('the companion carries the mood of the fullest gauge', async () => {
@@ -356,7 +403,7 @@ test('the band is the command console, with real readings and the companion', as
   expect(source.includes('>12%<')).toBe(true)
   expect(source.includes('>72%<')).toBe(true)
   // the chart is filled from the transcript: two prompts, two tool calls, one failed
-  expect(source.includes('LAST 2 TURNS · AVG 1')).toBe(true)
+  expect(source.includes('2 TURNS · AVG 1')).toBe(true)
   expect(source.includes('1 FAILED')).toBe(true)
   // the companion greets by the clock and the session's own count
   expect(await ui.find({ type: 'Text', text: /JOI/, ...LIVE })).toBeDefined()
@@ -526,7 +573,7 @@ test('the readouts count real tool calls and turns', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '4   ' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '42s   ' })).toBeDefined()
   // the finished turn is the chart's newest bar
-  expect(String(((await ui.find({ type: 'Svg' })) as Drawn)?.props.source).includes('LAST 3 TURNS')).toBe(true)
+  expect(String(((await ui.find({ type: 'Svg' })) as Drawn)?.props.source).includes('3 TURNS · AVG')).toBe(true)
   await ui.unmount()
 
   // the second call's card carries its operation number and keeps the app's row

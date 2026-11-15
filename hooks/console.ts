@@ -83,7 +83,47 @@ export function turnsOfRoom(trend: readonly number[]): number | undefined {
   return Math.max(0, Math.round((100 - recent[recent.length - 1]!) / growth))
 }
 
-type TextStyle = { size?: number; color?: string; opacity?: number; anchor?: 'start' | 'end' | 'middle'; weight?: number; lamp?: boolean }
+type TextStyle = {
+  size?: number
+  color?: string
+  opacity?: number
+  anchor?: 'start' | 'end' | 'middle'
+  weight?: number
+  lamp?: boolean
+  /** The width the text must stay inside, in px: past it, the text is squeezed to fit. */
+  max?: number
+}
+
+/**
+ * The console's grid. After the companion's cell come three cells of
+ * readings, each inset 10px from the dividers beside it, and all three share
+ * a baseline for their heading and one for their closing note.
+ */
+const GRID = {
+  dividers: [96, 342, 560],
+  context: { x: 106, w: 226 },
+  limits: { x: 352, w: 198 },
+  chart: { x: 570, w: 172 },
+  head: 18,
+  foot: 122,
+} as const
+
+/**
+ * How wide a line of the readout's capitals draws, in px: 0.73 of the type
+ * size a letter, spacing included. Measured from the console as drawn in
+ * Bahnschrift; a font that sets wider is held to `max` by the squeeze.
+ */
+export const textWidth = (body: string, size: number) => body.length * size * 0.73
+
+/** Short names for the legend, where three parts share 226px. */
+const LEGEND_NAMES: Record<string, string> = {
+  'system tools': 'TOOLS',
+  'system prompt': 'PROMPT',
+  'mcp tools': 'MCP',
+  'memory files': 'MEMORY',
+  'custom agents': 'AGENTS',
+}
+const legendName = (name: string) => LEGEND_NAMES[name.toLowerCase()] ?? name.toUpperCase().slice(0, 9)
 
 /**
  * The hologram: a woman of light standing in a projector's cone, drawn as a
@@ -207,15 +247,19 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
   const p: Palette = PRESETS[id]
   const text = (x: number | string, y: number, body: string, s: TextStyle = {}) => {
     const size = s.size ?? 9
+    const fit = s.max !== undefined && textWidth(body, size) > s.max
+      ? ` textLength="${Math.max(1, Math.round(s.max))}" lengthAdjust="spacingAndGlyphs"`
+      : ''
     return (
       `<text x="${x}" y="${y}" font-size="${size}" letter-spacing="${(size * (size > 14 ? 0.04 : 0.14)).toFixed(1)}" ` +
       `text-anchor="${s.anchor ?? 'start'}" font-weight="${s.weight ?? 600}" ${FONT} fill="${s.color ?? p.hud.primary}" ` +
-      `fill-opacity="${s.opacity ?? 1}"${s.lamp ? ' filter="url(#lamp)"' : ''}>${esc(body)}</text>`
+      `fill-opacity="${s.opacity ?? 1}"${fit}${s.lamp ? ' filter="url(#lamp)"' : ''}>${esc(body)}</text>`
     )
   }
-  const heading = (x: number, body: string) => text(x, 18, body, { opacity: 0.72 })
+  const heading = (x: number, body: string) => text(x, GRID.head, body, { opacity: 0.9 })
+  // The small print: 9px at 72%, which reads at 5.9:1 or better in every look.
   const note = (x: number | string, y: number, body: string, s: TextStyle = {}) =>
-    text(x, y, body, { size: 8, opacity: 0.55, weight: 500, ...s })
+    text(x, y, body, { size: 9, opacity: 0.72, weight: 500, ...s })
 
   // ── the companion's cell, or a small tracking grid when she is away ──────
   const holo = d.hasCompanion
@@ -227,8 +271,8 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
       `<rect x="37" y="58" width="16" height="16" fill="none" stroke="#ffe14d" stroke-width="1.4"/>`
 
   // ── CONTEXT ──────────────────────────────────────────────────────────────
-  const CX = 108
-  const CW = 228
+  const CX = GRID.context.x
+  const CW = GRID.context.w
   const cx = clamp(Math.round(d.context), 0, 100)
   const cxColor = level(p, cx)
   const total = d.window > 0 ? d.window : 0
@@ -242,29 +286,38 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
   let legend = ''
   if (total > 0 && stack.length > 0) {
     let x = CX
-    let lx = CX
+    // The legend names as many parts as fit the cell, biggest first, and
+    // stops at the first that doesn't: the bar still shows every part.
+    let lx: number = CX
+    let isLegendFull = false
     stack.forEach((part, i) => {
       const w = Math.max(1.5, (CW * part.tokens) / total)
       const color = partColors[i % partColors.length]!
       bar += `<rect x="${x.toFixed(1)}" y="54" width="${Math.min(w, CX + CW - x).toFixed(1)}" height="12" fill="${color}" filter="url(#lamp)"/>`
       x += w + 1
-      const name = `${part.name.toUpperCase().slice(0, 12)} ${Math.round((100 * part.tokens) / total)}%`
-      legend += `<rect x="${lx}" y="73" width="7" height="7" fill="${color}"/>` + note(lx + 10, 80, name, { opacity: 0.75 })
-      lx += 10 + name.length * 5.1 + 12
+      const name = `${legendName(part.name)} ${Math.round((100 * part.tokens) / total)}%`
+      const width = 10 + textWidth(name, 8.5)
+      if (isLegendFull || lx + width > CX + CW) {
+        isLegendFull = true
+        return
+      }
+      legend += `<rect x="${lx.toFixed(1)}" y="73" width="7" height="7" fill="${color}"/>` +
+        note((lx + 10).toFixed(1), 80, name, { size: 8.5, opacity: 0.8 })
+      lx += width + 7
     })
     if (d.reserve > 0) {
       const w = (CW * d.reserve) / total
       bar += `<rect x="${(CX + CW - w).toFixed(1)}" y="54" width="${w.toFixed(1)}" height="12" fill="url(#hatch)"/>`
-      if (w >= 34) bar += note(CX + CW, 51, 'RESERVE', { anchor: 'end', size: 7, opacity: 0.5 })
+      if (w >= 34) bar += note(CX + CW, 51, 'RESERVE', { anchor: 'end', size: 8, opacity: 0.65 })
     }
   } else {
     // no breakdown: one plain fill
     bar += `<rect x="${CX}" y="54" width="${((CW * cx) / 100).toFixed(1)}" height="12" fill="${cxColor}" filter="url(#lamp)"/>`
-    legend = note(CX, 80, cx >= 85 ? 'NEARLY FULL' : cx >= 65 ? 'FILLING UP' : 'ROOM TO WORK', { color: cxColor, opacity: 0.8 })
+    legend = note(CX, 80, cx >= ALARM ? 'NEARLY FULL' : cx >= WARM ? 'FILLING UP' : 'ROOM TO WORK', { color: cxColor, opacity: 0.85 })
   }
 
   // the trend: context at the end of each recent turn
-  const TY = 90
+  const TY = 88
   const TH = 22
   let trend = `<path d="M${CX} ${TY + TH + 0.5}H${CX + CW}" stroke="${p.hud.primary}" stroke-width="1" opacity="0.25"/>`
   if (d.trend.length >= 2) {
@@ -278,35 +331,42 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
       `<polygon points="${CX},${TY + TH} ${line} ${lastX.toFixed(1)},${TY + TH}" fill="${cxColor}" opacity="0.16"/>` +
       `<polyline points="${line}" fill="none" stroke="${cxColor}" stroke-width="1.4" filter="url(#lamp)"/>` +
       `<circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="2.4" fill="${cxColor}"/>`
-    const room = turnsOfRoom(d.trend)
-    trend += note(CX, TY + TH + 12, `CONTEXT AFTER EACH OF THE LAST ${pts.length} TURNS`)
-    if (room !== undefined) {
-      trend += note(CX + CW, TY + 6, room === 0 ? 'FULL AT THIS RATE' : `ABOUT ${room} TURNS OF ROOM`, { anchor: 'end', color: cxColor, opacity: 0.9 })
-    }
+    trend += note(CX, GRID.foot, `CONTEXT OVER THE LAST ${pts.length} TURNS`, { max: CW })
   } else {
-    trend += note(CX, TY + 14, 'TREND APPEARS AFTER TWO TURNS', { opacity: 0.4 })
+    trend += note(CX, GRID.foot, 'TREND APPEARS AFTER TWO TURNS', { opacity: 0.6, max: CW })
   }
+
+  // How long the room lasts at this rate, on the figure's own line, in the
+  // space to the right of it: over the trend it crossed the line it describes.
+  const usedAt = CX + (cx >= 100 ? 74 : cx >= 10 ? 60 : 44)
+  const room = turnsOfRoom(d.trend)
+  const roomNote = room === undefined
+    ? ''
+    : note(CX + CW, 46, room === 0 ? 'FULL AT THIS RATE' : `ABOUT ${room} TURNS OF ROOM`, {
+        anchor: 'end', color: cxColor, opacity: 0.95, max: CX + CW - (usedAt + textWidth('USED', 9) + 10),
+      })
 
   const context =
     heading(CX, 'CONTEXT') +
-    (total > 0 ? note(CX + CW, 18, `${tokenLabel(d.tokens)} OF ${tokenLabel(total)} TOKENS`, { anchor: 'end' }) : '') +
+    (total > 0 ? note(CX + CW, GRID.head, `${tokenLabel(d.tokens)} OF ${tokenLabel(total)} TOKENS`, { anchor: 'end', max: CW - 64 }) : '') +
     text(CX, 46, `${cx}%`, { size: 26, color: cxColor, weight: 700, lamp: true }) +
-    text(CX + (cx >= 100 ? 74 : cx >= 10 ? 60 : 44), 46, 'USED', { size: 9, color: cxColor, opacity: 0.8 }) +
-    bar + legend + trend
+    text(usedAt, 46, 'USED', { size: 9, color: cxColor, opacity: 0.85 }) +
+    roomNote + bar + legend + trend
 
   // ── PLAN LIMITS ──────────────────────────────────────────────────────────
-  const LX = 350
-  const LW = 198
+  const LX = GRID.limits.x
+  const LW = GRID.limits.w
   const rows = d.limits.slice(0, 2)
   let limits = heading(LX, 'PLAN LIMITS')
   if (rows.length === 0) {
     // A new session has no reading until Claude has replied once.
-    limits += note(LX, 46, 'NO READING YET', { opacity: 0.5 }) +
-      note(LX, 60, 'SHOWS AFTER THE NEXT REPLY', { opacity: 0.4 })
+    limits += note(LX, 46, 'NO READING YET', { opacity: 0.65 }) +
+      note(LX, 60, 'SHOWS AFTER THE NEXT REPLY', { opacity: 0.6, max: LW })
   } else {
-    limits += note(LX + LW, 18, '▼ TIME GONE', { anchor: 'end' })
+    limits += note(LX + LW, GRID.head, '▼ TIME GONE', { anchor: 'end' })
     rows.forEach((row, i) => {
-      const y = 26 + i * 50
+      // two rows, the second closing on the cells' shared foot
+      const y = GRID.foot - 42 - (rows.length - 1 - i) * 52
       const pct = clamp(Math.round(row.percent), 0, 100)
       const color = level(p, pct)
       const lit = Math.round((20 * pct) / 100)
@@ -317,33 +377,42 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
         if (k < lit) on += seg
         else off += seg
       }
+      const figure = `${pct}%`
       limits +=
-        text(LX, y + 12, row.name, { opacity: 0.8 }) +
-        text(LX + LW, y + 13, `${pct}%`, { size: 16, color, anchor: 'end', weight: 700, lamp: true }) +
+        text(LX, y + 10, row.name, { opacity: 0.85 }) +
+        text(LX + LW, y + 12, figure, { size: 16, color, anchor: 'end', weight: 700, lamp: true }) +
         (off ? `<path d="${off}" fill="${color}" opacity="0.16"/>` : '') +
         (on ? `<path d="${on}" fill="${color}" filter="url(#lamp)"/>` : '')
-      let verdict = ''
       if (row.elapsed !== null) {
         const mx = LX + LW * clamp(row.elapsed, 0, 1)
-        limits += `<path d="M${mx.toFixed(1)} ${y + 19}l-4 -5.5h8z" fill="#ffffff" opacity="0.9"/>`
+        limits += `<path d="M${mx.toFixed(1)} ${y + 19}l-3.5 -5h7z" fill="#ffffff" opacity="0.9"/>`
+        // the verdict sits beside the name, in the room the figure leaves
         const gone = row.elapsed * 100
-        verdict = pct > gone + 10 ? ' · AHEAD OF PACE' : pct < gone - 10 ? ' · UNDER PACE' : ' · ON PACE'
+        const verdict = pct > gone + 10 ? 'AHEAD OF PACE' : pct < gone - 10 ? 'UNDER PACE' : 'ON PACE'
+        const from = LX + textWidth(row.name, 9) + 6
+        const room = LX + LW - textWidth(figure, 16) - 8 - from
+        if (room >= 40) limits += note(from.toFixed(1), y + 10, `· ${verdict}`, { max: room })
       }
-      const foot = row.resets === '' ? '' : `RESETS ${row.resets} · ${row.left} LEFT${verdict}`
-      limits += note(LX, y + 42, foot)
+      // under the bar: when it resets at the left, how long is left at the right
+      if (row.resets !== '') {
+        const left = `${row.left} LEFT`
+        limits +=
+          note(LX, y + 42, `RESETS ${row.resets}`, { max: LW - textWidth(left, 9) - 8 }) +
+          note(LX + LW, y + 42, left, { anchor: 'end' })
+      }
     })
   }
 
   // ── TOOL CALLS PER TURN ──────────────────────────────────────────────────
-  const AX = 570
-  const AW = 172
+  const AX = GRID.chart.x
+  const AW = GRID.chart.w
   const top = 30
-  const base = 104
+  const base = 108
   const turns = d.turns.slice(-24)
   let activity = heading(AX, 'TOOL CALLS PER TURN') +
     `<path d="M${AX} ${base + 0.5}H${AX + AW}" stroke="${p.hud.primary}" stroke-width="1" opacity="0.35"/>`
   if (turns.length === 0) {
-    activity += note(AX, 64, 'NO TURNS RECORDED YET', { opacity: 0.4 })
+    activity += note(AX, 64, 'NO TURNS RECORDED YET', { opacity: 0.6, max: AW })
   } else {
     const peak = Math.max(1, ...turns.map(t => t.ops))
     const sum = turns.reduce((n, t) => n + t.ops, 0)
@@ -361,15 +430,20 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
       else ok += seg
       if (failH > 0) bad += `M${x} ${(base - failH).toFixed(1)}h5v${failH.toFixed(1)}h-5z`
     })
+    // the closing note shares its line with the failures, so it takes the shorter wording when it must
+    const failedNote = failed > 0 ? `${failed} FAILED` : ''
+    const room = AW - (failed > 0 ? textWidth(failedNote, 9) + 8 : 0)
+    const long = turns.length === 1 ? `LAST TURN · ${sum} CALLS` : `LAST ${turns.length} TURNS · AVG ${Math.round(sum / turns.length)}`
+    const short = turns.length === 1 ? `${sum} CALLS` : `${turns.length} TURNS · AVG ${Math.round(sum / turns.length)}`
     activity +=
       (ok ? `<path d="${ok}" fill="${p.hud.calm}" opacity="0.6"/>` : '') +
       (latest ? `<path d="${latest}" fill="${p.hud.calm}" filter="url(#lamp)"/>` : '') +
       (bad ? `<path d="${bad}" fill="${p.hud.alert}" filter="url(#lamp)"/>` : '') +
       `<path d="M${AX} ${top + 0.5}H${AX + AW}" stroke="${p.hud.primary}" stroke-width="1" stroke-dasharray="2 4" opacity="0.3"/>` +
-      note(AX, top - 3, `PEAK ${peak}`, { size: 7.5 }) +
-      (sum === 0 ? note(AX, 64, 'NO TOOL CALLS YET', { opacity: 0.4 }) : '') +
-      note(AX, base + 13, turns.length === 1 ? `LAST TURN · ${sum} CALLS` : `LAST ${turns.length} TURNS · AVG ${Math.round(sum / turns.length)}`) +
-      (failed > 0 ? note(AX + AW, base + 13, `${failed} FAILED`, { anchor: 'end', color: p.hud.alert, opacity: 0.95 }) : '')
+      note(AX, top - 3, `PEAK ${peak}`, { size: 8.5 }) +
+      (sum === 0 ? note(AX, 64, 'NO TOOL CALLS YET', { opacity: 0.6 }) : '') +
+      note(AX, GRID.foot, textWidth(long, 9) <= room ? long : short, { max: room }) +
+      (failed > 0 ? note(AX + AW, GRID.foot, failedNote, { anchor: 'end', color: p.hud.alert, opacity: 0.95 }) : '')
   }
 
   const chase = animated
@@ -393,7 +467,7 @@ export function consoleSvg(id: PresetId, d: ConsoleData, animated = false, pictu
     `<rect width="100%" height="${H}" fill="${d.ground}"/>` +
     `<line x1="0" y1="2" x2="100%" y2="2" stroke="${p.hud.primary}" stroke-width="1.5" stroke-dasharray="14 14" opacity="0.8">${chase}</line>` +
     `<rect x="0" y="${H - 6}" width="100%" height="6" fill="url(#ruler)"/>` +
-    `<path d="M96 12V${H - 12}M343 12V${H - 12}M561 12V${H - 12}" stroke="${p.hud.primary}" stroke-width="1" opacity="0.22"/>` +
+    `<path d="${GRID.dividers.map(x => `M${x} 12V${H - 12}`).join('')}" stroke="${p.hud.primary}" stroke-width="1" opacity="0.22"/>` +
     holo.body + idle +
     context + limits + activity +
     `<rect width="100%" height="${H}" fill="url(#scan)"/>` +
