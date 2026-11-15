@@ -141,7 +141,9 @@ const VIEWS: Record<View, { width: number; box: (w: number) => string; fit: stri
   deck: { width: 1920, box: w => `0 0 ${w} ${H}`, fit: 'xMidYMid slice' },
 }
 
-const FONT = "font-family=\"Bahnschrift,'DIN Alternate','Segoe UI',sans-serif\" font-weight=\"600\""
+/** The readouts' typeface, as an SVG attribute: a narrow engineering face, with what stands in for it elsewhere. */
+export const FONT_FAMILY = "font-family=\"Bahnschrift,'DIN Alternate','Segoe UI',sans-serif\""
+const FONT = `${FONT_FAMILY} font-weight="600"`
 
 function mulberry32(seed: number) {
   let a = seed >>> 0
@@ -158,7 +160,8 @@ type Rand = ReturnType<typeof mulberry32>
 
 const between = (r: Rand, lo: number, hi: number) => Math.round(lo + r() * (hi - lo))
 const pick = <T,>(r: Rand, list: readonly T[]): T => list[Math.floor(r() * list.length)]!
-const pad4 = (n: number) => String(Math.max(0, Math.round(n))).padStart(4, '0')
+/** A readout value: four digits, as the old screens wrote them. */
+export const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).padStart(4, '0')
 
 /**
  * How much of a scene moves. `calm` holds still the parts that redraw the

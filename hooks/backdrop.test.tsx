@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { cleanName, clockLabel, companionLine, limitLabel, parseLimits, resetAlerts, uptimeLabel } from './companion'
+import { cleanName, clockLabel, companionLine, parseLimits, resetAlerts, uptimeLabel } from './companion'
 import type { Limit, Vitals } from './companion'
 import { consoleSvg, moodOf, textWidth, tokenLabel, turnsOfRoom } from './console'
 import { secondsLabel, turnLabel } from './live-row'
@@ -40,12 +40,13 @@ function world(
   on: any,
   stored: Stored = {},
   theme: 'drawn' | 'undrawn' | 'refused' = 'undrawn',
-  limits: { now: Limit[]; surfaces?: string[]; percent?: number } = { now: LIMITS },
+  limits: { now: Limit[]; surfaces?: string[]; percent?: number; version?: string } = { now: LIMITS },
 ) {
   const sets: SetCall[] = []
   const calls: string[] = []
   const notes: Note[] = []
   const cancels: string[] = []
+  const toasts: string[] = []
   let wasStarted = false
   mock.clock(on, { now: NOW })
   on('command.register', () => ({ value: { command: 'theme-mod' } }))
@@ -66,7 +67,10 @@ function world(
     calls.push('clear')
     return { value: { isDrawn: false, reason: 'cleared' } }
   })
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_: unknown, e: unknown) => {
+    toasts.push(typeof e === 'string' ? e : String((e as { text?: string }).text))
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('ui.notify', (_: unknown, e: Note) => {
     notes.push(e)
@@ -84,6 +88,7 @@ function world(
     },
   }))
   on('session.model', () => ({ value: 'claude-fable-5-2' }))
+  on('session.version', () => ({ value: { version: limits.version ?? '2.1.325' } }))
   on('session.surfaces', () => ({ value: limits.surfaces ?? ['desktop'] }))
   on('session.turns', () => ({ value: 3 }))
   on('session.cwd', () => ({ value: 'C:\\work\\night-shift' }))
@@ -100,7 +105,7 @@ function world(
     wasStarted = true
     return { cwd: e.cwd }
   })
-  return { sets, calls, stored, notes, cancels, wasStarted: () => wasStarted }
+  return { sets, calls, stored, notes, cancels, toasts, wasStarted: () => wasStarted }
 }
 
 const START = { cwd: '/', surface: 'desktop', isInteractive: true } as const
@@ -151,8 +156,8 @@ test('every scene fits the Svg bound, runs no script, and is deterministic', asy
       consoleSvg(id, SAMPLE, false),
     ]) {
       expect(svg.length < 131072).toBe(true)
-      // the portrait is an embedded picture; nothing else may link out
-      expect(/<script|\son[a-z]+=|href="(?!data:image)/i.test(svg)).toBe(false)
+      // nothing runs and nothing links out: a portrait is plain shapes, like the rest
+      expect(/<script|\son[a-z]+=|href=/i.test(svg)).toBe(false)
     }
   }
 })
@@ -319,8 +324,6 @@ test('the readout helpers format the way the console shows them', async () => {
   expect(clockLabel(NOW)).toBe('21:17  FRI 13 NOV')
   expect(uptimeLabel(NOW - 102 * 60_000, NOW)).toBe('01:42')
   expect(uptimeLabel(0, NOW)).toBe('--:--')
-  expect(limitLabel('five_hour')).toBe('5H')
-  expect(limitLabel('seven_day')).toBe('7D')
   expect(parseLimits('not json')).toEqual([])
   expect(parseLimits('[{"kind":"seven_day","percentUsed":7},{"nope":1}]')).toEqual([{ kind: 'seven_day', percentUsed: 7 }])
   expect(cleanName('  vesper <b>9  ')).toBe('VESPER B9')

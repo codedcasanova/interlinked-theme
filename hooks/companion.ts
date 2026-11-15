@@ -45,10 +45,6 @@ export function parseLimits(json: string): Limit[] {
   }
 }
 
-/** A limit's two-character label for the gauge. */
-export const limitLabel = (kind: string) =>
-  kind === 'five_hour' ? '5H' : kind === 'seven_day' ? '7D' : kind === 'spend_limit' ? 'SP' : kind.slice(0, 2).toUpperCase()
-
 const limitName = (kind: string) =>
   kind === 'five_hour' ? 'five-hour' : kind === 'seven_day' ? 'weekly' : kind === 'spend_limit' ? 'spend' : kind.replace(/_/g, ' ')
 

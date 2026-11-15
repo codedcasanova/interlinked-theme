@@ -21,7 +21,7 @@ import type { Limit } from './companion'
 import { CONSOLE, consoleSvg } from './console'
 import type { LiveRowProps } from './live-row'
 import { LOOKS } from './looks'
-import { PRESETS, PRESET_IDS, isPresetId, railSvg, sceneSvg } from './scenes'
+import { PRESETS, PRESET_IDS, isPresetId, pad4, railSvg, sceneSvg } from './scenes'
 import type { PresetId } from './scenes'
 import { durationLabel, groupTally, toolFacts, toolLabel } from './tools'
 
@@ -65,7 +65,6 @@ const band = atom({ plugin: 'interlinked-theme', key: 'band' } as const, 'consol
 const glass = atom({ plugin: 'interlinked-theme', key: 'glass' } as const, 'frost' as Glass)
 const motion = atom({ plugin: 'interlinked-theme', key: 'motion' } as const, 'full' as Motion)
 const isStyled = atom({ plugin: 'interlinked-theme', key: 'isStyled' } as const, true)
-const isBackdropDrawn = atom({ plugin: 'interlinked-theme', key: 'isBackdropDrawn' } as const, false)
 const ops = atom({ plugin: 'interlinked-theme', key: 'ops' } as const, 0)
 const turns = atom({ plugin: 'interlinked-theme', key: 'turns' } as const, 0)
 const lastSeconds = atom({ plugin: 'interlinked-theme', key: 'lastSeconds' } as const, 0)
@@ -149,6 +148,51 @@ function parseDetail(value: unknown): Detail {
   }
 }
 
+/**
+ * Notes a failure the mod carries on from, in the debug log (`claude
+ * --debug`). Each of these used to be swallowed whole, and a readout that
+ * quietly stops is hard to find.
+ */
+function quiet($: EngineInterface, err: unknown): void {
+  try {
+    $.ui.log(`carried on after: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300), { to: 'debug' })
+  } catch {
+    // Nowhere to say so.
+  }
+}
+
+/** The build this mod was made on. An older one may lack what it draws with. */
+const MIN_VERSION = '2.1.325'
+
+/** Whether version `a` comes before `b`, part by part: `2.1.99` is older than `2.1.325`. */
+export function isOlder(a: string, b: string): boolean {
+  const parts = (v: string) => v.split(/[^0-9]+/).filter(Boolean).map(Number)
+  const [x, y] = [parts(a), parts(b)]
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0)
+  }
+  return false
+}
+
+/**
+ * Parses a stored JSON string once. The band reads the same text on every
+ * draw, and it is drawn on every tool call.
+ */
+function once<T>(parse: (text: string) => T): (text: string) => T {
+  let last: string | undefined
+  let value: T | undefined
+  return text => {
+    if (text !== last || value === undefined) {
+      value = parse(text)
+      last = text
+    }
+    return value
+  }
+}
+const limitsOf = once(parseLimits)
+const historyOf = once(parseHistory)
+const heldOf = once(parseHeld)
+
 /** `2D 11H`, `2H 55M`, `45M`: time left, short enough for a readout. */
 function spanLabel(ms: number): string {
   const minutes = Math.max(0, Math.round(ms / 60_000))
@@ -226,8 +270,12 @@ function keep(map: Map<string, number>, id: string, value: number): void {
     if (oldest !== undefined) map.delete(oldest)
   }
 }
-/** Set once an app asks this mod to draw its scene, which proves it draws backdrops. */
-let hasDrawnScene = false
+/**
+ * Whether an app draws this mod's scene: it said so when the theme was set,
+ * or it asked for the scene to be drawn. Module state: session.start sets the
+ * theme again after a reload.
+ */
+let isSceneDrawn = false
 
 /**
  * The reset notifications booked this load, by key, with the moment each is
@@ -277,7 +325,8 @@ async function syncAlerts($: EngineInterface, limits: readonly Limit[]): Promise
       const sent = await $.ui.notify(alert.text, { ...(title ? { title } : {}), key: alert.key, at: alert.at })
       if (sent.isSent) booked.set(alert.key, alert.at)
     }
-  } catch {
+  } catch (err) {
+    quiet($, err)
     // A notification that cannot be booked costs nothing else.
   }
 }
@@ -292,13 +341,11 @@ async function cancelAlerts($: EngineInterface): Promise<void> {
     const keys = new Set([...booked.keys(), ...resetAlerts(limits, await $.clock.now()).map(alert => alert.key)])
     booked.clear()
     for (const key of keys) await $.ui.cancelNotify(key)
-  } catch {
+  } catch (err) {
+    quiet($, err)
     // Nothing held, or no app to ask.
   }
 }
-
-/** A readout value: four digits, as the old screens wrote them. */
-const pad4 = (n: number) => String(Math.max(0, Math.min(9999, Math.round(n)))).padStart(4, '0')
 
 const isBand = (v: unknown): v is Band => BANDS.includes(v as Band)
 const isGlass = (v: unknown): v is Glass => GLASSES.includes(v as Glass)
@@ -352,10 +399,10 @@ async function apply($: EngineInterface, id: PresetId): Promise<{ isDrawn: boole
   }
   try {
     const set = await $.theme.set(args)
-    await update($, isBackdropDrawn, () => set.isDrawn && level !== 'solid')
+    isSceneDrawn = set.isDrawn && level !== 'solid'
     return set.isDrawn ? { isDrawn: true } : { isDrawn: false, reason: set.reason }
   } catch (err) {
-    await update($, isBackdropDrawn, () => false)
+    isSceneDrawn = false
     return { isDrawn: false, reason: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -426,7 +473,8 @@ async function takeReading($: EngineInterface, percent: unknown, limits: unknown
       await fresh(await read($, limitsJson), text, () => update($, limitsJson, () => text))
       await syncAlerts($, parseLimits(text))
     }
-  } catch {
+  } catch (err) {
+    quiet($, err)
     // The readouts keep their last values.
   }
 }
@@ -436,14 +484,16 @@ async function readSession($: EngineInterface): Promise<void> {
   try {
     const id = await $.session.model()
     await fresh(await read($, model), id, () => update($, model, () => id))
-  } catch {
+  } catch (err) {
+    quiet($, err)
     // Keep the last one.
   }
   try {
     const cwd = await $.session.cwd()
     const last = cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''
     await fresh(await read($, folder), last, () => update($, folder, () => last))
-  } catch {
+  } catch (err) {
+    quiet($, err)
     // Same.
   }
 }
@@ -484,7 +534,8 @@ async function refreshReadouts($: EngineInterface): Promise<void> {
     }
     const text = JSON.stringify(held)
     await fresh(await read($, consoleJson), text, () => update($, consoleJson, () => text))
-  } catch {
+  } catch (err) {
+    quiet($, err)
     // No usage on this build or surface: the readouts keep their last values.
   }
 }
@@ -574,7 +625,7 @@ async function turnOff($: EngineInterface): Promise<string> {
   await $.store.set(CHOICE, 'off')
   await update($, current, () => 'off' as Current)
   isOff = true
-  await update($, isBackdropDrawn, () => false)
+  isSceneDrawn = false
   await cancelAlerts($)
   await $.theme.clear()
   return 'Theme off: back to the app’s own look.'
@@ -600,7 +651,7 @@ const usage = () =>
 
 async function statusText($: EngineInterface): Promise<string> {
   const now = await read($, current)
-  const drawn = (await read($, isBackdropDrawn)) || hasDrawnScene
+  const drawn = isSceneDrawn
   return [
     `LOOK   ${now}${isPresetId(now) ? ` (${PRESETS[now].label})` : ''}`,
     `SCENE  ${drawn ? 'drawn behind the conversation' : 'not drawn by this app'}`,
@@ -690,8 +741,19 @@ export const register: Register = on => {
         description: 'Interlinked look: presets, glass, command console, companion, motion, row styling, alerts, control deck',
         argumentHint: `[${PRESET_IDS.join('|')}|glass|band|companion|motion|style|alerts|deck|off]`,
       })
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // The name is taken on this build: the look still loads.
+    }
+
+    // Say so once on a build older than the one this was made on.
+    try {
+      const { version } = await $.session.version()
+      if (isOlder(version, MIN_VERSION)) {
+        $.ui.toast(`Interlinked was made for Claude Code ${MIN_VERSION} or later. This is ${version}: some of it may not draw.`)
+      }
+    } catch (err) {
+      quiet($, err)
     }
 
     const now = await loadChoices($)
@@ -700,7 +762,8 @@ export const register: Register = on => {
       try {
         const done = await $.session.turns()
         await update($, turns, () => done)
-      } catch {
+      } catch (err) {
+        quiet($, err)
         // Count from here.
       }
     }
@@ -709,7 +772,8 @@ export const register: Register = on => {
 
     try {
       await backfill($)
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // No transcript here: the chart fills as turns finish.
     }
 
@@ -717,7 +781,8 @@ export const register: Register = on => {
     try {
       await tick($)
       $.clock.every(30_000, () => tick($).catch(() => undefined))
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // No clock here: the console draws without one.
     }
 
@@ -734,9 +799,14 @@ export const register: Register = on => {
   // /clear, /resume and /branch reset $.state to its defaults without firing
   // session.start again, so load the saved choices once more.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
-    await loadChoices($)
-    await readSession($)
-    await refreshReadouts($)
+    try {
+      await loadChoices($)
+      await readSession($)
+      await refreshReadouts($)
+    } catch (err) {
+      // a settings store that can't be read must not stop the session starting
+      quiet($, err)
+    }
     return next(e)
   })
 
@@ -758,7 +828,8 @@ export const register: Register = on => {
           await takeReading($, reading.context.percent, reading.rateLimits)
         }
       }
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // The readouts keep their last values.
     }
     return next(e)
@@ -797,7 +868,8 @@ export const register: Register = on => {
         await update($, faults, count => count + 1)
         await fresh(await read($, hadFault), true, () => update($, hadFault, () => true))
       }
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // Same.
     }
     return result
@@ -816,7 +888,8 @@ export const register: Register = on => {
         await fresh(await read($, turnStartedAt), began, () => update($, turnStartedAt, () => began))
         const id = await $.session.model()
         await fresh(await read($, model), id, () => update($, model, () => id))
-      } catch {
+      } catch (err) {
+        quiet($, err)
         // Keep the last values.
       }
     }
@@ -832,7 +905,8 @@ export const register: Register = on => {
     try {
       await fresh(await read($, turnStartedAt), 0, () => update($, turnStartedAt, () => 0))
       await fresh(await read($, lastSeconds), seconds, () => update($, lastSeconds, () => seconds))
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // Keep the last value.
     }
     // The turn is over: the console's drawing may take the new figures.
@@ -844,7 +918,8 @@ export const register: Register = on => {
       // one more bar on the chart, one more point on the trend
       const entry: Turn = { o: calls, f: turnFaults, c: context }
       await update($, historyJson, text => JSON.stringify([...parseHistory(text), entry].slice(-HISTORY)))
-    } catch {
+    } catch (err) {
+      quiet($, err)
       // Keep the history as it was.
     }
 
@@ -869,7 +944,7 @@ export const register: Register = on => {
     const { Box, Client, Svg, Text } = $.ui.resolve(e)
 
     const context = await read($, contextPercent)
-    const limits = parseLimits(await read($, limitsJson))
+    const limits = limitsOf(await read($, limitsJson))
     const clock = (await read($, minute)) * 60_000
     const name = await read($, companion)
     const hasCompanion = choice === 'console' && (await read($, isCompanionOn))
@@ -882,10 +957,10 @@ export const register: Register = on => {
     if (choice === 'console') {
       // The drawing shows the readings as they stood when the last turn
       // ended: a new source would restart its animation mid-turn.
-      const held = parseHeld(await read($, consoleJson))
+      const held = heldOf(await read($, consoleJson))
       const detail = held.detail
       shown = held.context
-      const history = parseHistory(await read($, historyJson))
+      const history = historyOf(await read($, historyJson))
       // The limits' clocks move in five-minute steps, so the drawing is
       // rebuilt every five minutes and not every one.
       const step = Math.floor(clock / 300_000) * 300_000
@@ -1328,7 +1403,7 @@ export const register: Register = on => {
     if (e.props.plugin !== $.plugin.name || !isPresetId(id)) return next(e)
 
     // An app asked for the scene, so it draws backdrops: /theme-mod status says so.
-    hasDrawnScene = true
+    isSceneDrawn = true
 
     const level = await read($, motion)
     const anim = level !== 'off'

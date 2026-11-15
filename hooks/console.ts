@@ -11,7 +11,7 @@
 // width, and a viewBox wider than the band shrinks everything in it.)
 
 import { PORTRAIT } from './portrait'
-import { PRESETS } from './scenes'
+import { FONT_FAMILY, PRESETS } from './scenes'
 import type { Palette, PresetId } from './scenes'
 
 export type ConsoleData = {
@@ -37,7 +37,7 @@ export type ConsoleData = {
 /** The console's size. Its four cells need `minWidth`; a wider band gets more ruler. */
 export const CONSOLE = { minWidth: 752, frameWidth: 1600, height: 132 }
 
-const FONT = "font-family=\"Bahnschrift,'DIN Alternate','Segoe UI',sans-serif\""
+const FONT = FONT_FAMILY
 const H = CONSOLE.height
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))

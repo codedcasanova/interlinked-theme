@@ -32,8 +32,6 @@ declare module 'claude-code' {
       motion: Motion
       /** Readout tags and cards on the conversation's rows. */
       isStyled: boolean
-      /** Whether an attached app said it draws the look. */
-      isBackdropDrawn: boolean
       /** Tool calls seen this session. */
       ops: number
       /** The session's count of tool calls when the turn running now, or the last one, began. */
